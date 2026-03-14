@@ -6,6 +6,8 @@ import path from "path";
 import Database from "better-sqlite3";
 import { format, startOfDay, addDays } from "date-fns";
 
+import { InfluxDB, Point } from "@influxdata/influxdb-client";
+
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
@@ -50,6 +52,11 @@ async function startServer() {
     INSERT OR IGNORE INTO settings (key, value) VALUES ('op_start', '00:00');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('op_end', '23:59');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_active', '0');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('influx_url', '');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('influx_token', '');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('influx_org', '');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('influx_bucket', '');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('influx_enabled', '0');
 
     CREATE TABLE IF NOT EXISTS counts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,6 +145,31 @@ async function startServer() {
   const isMaintenanceActive = () => {
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'maintenance_active'").get() as { value: string } | undefined;
     return setting?.value === "1";
+  };
+
+  const sendToInfluxDB = async (mealName: string, count: number) => {
+    const settings = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'influx_%'").all() as { key: string, value: string }[];
+    const config = settings.reduce((acc: any, s: any) => {
+      acc[s.key] = s.value;
+      return acc;
+    }, {});
+
+    if (config.influx_enabled !== '1' || !config.influx_url || !config.influx_token) return;
+
+    try {
+      const client = new InfluxDB({ url: config.influx_url, token: config.influx_token });
+      const writeApi = client.getWriteApi(config.influx_org, config.influx_bucket);
+      
+      const point = new Point('production')
+        .tag('menu', mealName)
+        .intField('count', count);
+      
+      writeApi.writePoint(point);
+      await writeApi.close();
+      console.log(`Data sent to InfluxDB: ${mealName} = ${count}`);
+    } catch (e) {
+      console.error("InfluxDB Write Error:", e);
+    }
   };
 
   // API Routes
@@ -262,6 +294,19 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.post("/api/influxdb/test", async (req, res) => {
+    const { url, token, org, bucket } = req.body;
+    try {
+      const client = new InfluxDB({ url, token });
+      const queryApi = client.getQueryApi(org);
+      // Simple query to test connection
+      await queryApi.queryRaw('buckets()');
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   // Hardware Simulation / Integration Endpoints
   app.post("/api/trigger/proximity", (req, res) => {
     const { status } = req.body; // "activated" or "deactivated"
@@ -318,6 +363,7 @@ async function startServer() {
 
     const today = format(new Date(), "yyyy-MM-dd");
     
+    let currentCount = 0;
     db.transaction(() => {
       db.prepare(`
         INSERT INTO counts (meal_id, date, count) 
@@ -326,7 +372,13 @@ async function startServer() {
       `).run(meal.id, today);
       
       db.prepare("INSERT INTO logs (meal_id) VALUES (?)").run(meal.id);
+      
+      const row = db.prepare("SELECT count FROM counts WHERE meal_id = ? AND date = ?").get(meal.id, today) as { count: number };
+      currentCount = row.count;
     })();
+
+    const mealInfo = db.prepare("SELECT name FROM meals WHERE id = ?").get(meal.id) as { name: string };
+    sendToInfluxDB(mealInfo.name, currentCount);
 
     io.emit("update");
     io.emit("scan", { qrCode, timestamp: new Date() });

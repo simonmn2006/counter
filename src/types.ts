@@ -36,4 +36,10 @@ export interface Settings {
   calibration_ms: string;
   op_start?: string;
   op_end?: string;
+  influx_url?: string;
+  influx_token?: string;
+  influx_org?: string;
+  influx_bucket?: string;
+  influx_enabled?: string;
+  maintenance_active?: string;
 }

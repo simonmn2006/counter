@@ -28,7 +28,8 @@ import {
   CheckCircle2,
   Target,
   Zap,
-  Tally5
+  Tally5,
+  Database
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -283,7 +284,8 @@ export default function App() {
     speed: 'normal',
     color: '#000000'
   });
-  const [adminTab, setAdminTab] = useState<"assets" | "hardware" | "marquee" | "hours">("assets");
+  const [adminTab, setAdminTab] = useState<"assets" | "hardware" | "marquee" | "hours" | "influx">("assets");
+  const [influxTestStatus, setInfluxTestStatus] = useState<{ loading: boolean; success?: boolean; error?: string }>({ loading: false });
   const [error, setError] = useState<string | null>(null);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -723,6 +725,30 @@ export default function App() {
       });
     } catch (err) {
       console.error("Failed to set maintenance", err);
+    }
+  };
+
+  const handleTestInflux = async () => {
+    setInfluxTestStatus({ loading: true });
+    try {
+      const res = await fetch("/api/influxdb/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: settings.influx_url,
+          token: settings.influx_token,
+          org: settings.influx_org,
+          bucket: settings.influx_bucket
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInfluxTestStatus({ loading: false, success: true });
+      } else {
+        setInfluxTestStatus({ loading: false, error: data.error });
+      }
+    } catch (err: any) {
+      setInfluxTestStatus({ loading: false, error: err.message });
     }
   };
 
@@ -1174,7 +1200,7 @@ export default function App() {
                   )}>Hardware- & Bestandsverwaltungs-Kontrollzentrum</p>
                 </div>
                 <div className="flex gap-2">
-                  {(['assets', 'hardware', 'marquee', 'hours'] as const).map((tab) => (
+                  {(['assets', 'hardware', 'marquee', 'hours', 'influx'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setAdminTab(tab)}
@@ -1186,7 +1212,7 @@ export default function App() {
                         currentTheme.rounded
                       )}
                     >
-                      {tab === 'assets' ? 'Bestände' : tab === 'hardware' ? 'Hardware' : tab === 'marquee' ? 'Ticker' : 'Betriebszeiten'}
+                      {tab === 'assets' ? 'Bestände' : tab === 'hardware' ? 'Hardware' : tab === 'marquee' ? 'Ticker' : tab === 'hours' ? 'Betriebszeiten' : 'InfluxDB'}
                     </button>
                   ))}
                 </div>
@@ -1654,6 +1680,129 @@ export default function App() {
                           </button>
                         ))}
                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {adminTab === 'influx' && (
+                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className={cn(
+                    "p-12 border transition-all duration-700",
+                    currentTheme.rounded,
+                    currentTheme.card
+                  )}>
+                    <div className="flex items-center justify-between mb-12">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 flex items-center justify-center bg-indigo-500 text-white rounded-2xl shadow-lg">
+                          <Database size={24} />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">InfluxDB 2.0 Integration</h3>
+                          <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Live-Datenübertragung an Zeitreihendatenbank</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Status:</span>
+                        <button
+                          onClick={() => updateSetting('influx_enabled', settings.influx_enabled === '1' ? '0' : '1')}
+                          className={cn(
+                            "px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all",
+                            settings.influx_enabled === '1' ? "bg-emerald-500 text-white" : "bg-black/10 opacity-50",
+                            currentTheme.rounded
+                          )}
+                        >
+                          {settings.influx_enabled === '1' ? 'Aktiviert' : 'Deaktiviert'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Server URL</label>
+                          <input
+                            type="text"
+                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.influx_url || ""}
+                            onChange={(e) => updateSetting('influx_url', e.target.value)}
+                            placeholder="http://localhost:8086"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Organisation</label>
+                          <input
+                            type="text"
+                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.influx_org || ""}
+                            onChange={(e) => updateSetting('influx_org', e.target.value)}
+                            placeholder="meine-org"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Bucket Name</label>
+                          <input
+                            type="text"
+                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.influx_bucket || ""}
+                            onChange={(e) => updateSetting('influx_bucket', e.target.value)}
+                            placeholder="produktion"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">API Token</label>
+                          <input
+                            type="password"
+                            className={cn("w-full p-4 border outline-none transition-all font-mono", currentTheme.rounded, currentTheme.input)}
+                            value={settings.influx_token || ""}
+                            onChange={(e) => updateSetting('influx_token', e.target.value)}
+                            placeholder="Dein InfluxDB API Token"
+                          />
+                        </div>
+                        
+                        <div className="pt-8 space-y-4">
+                          <button
+                            onClick={handleTestInflux}
+                            disabled={influxTestStatus.loading}
+                            className={cn(
+                              "w-full py-5 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-3",
+                              influxTestStatus.loading ? "opacity-50 cursor-wait" : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-500/20",
+                              currentTheme.rounded
+                            )}
+                          >
+                            {influxTestStatus.loading ? (
+                              <RefreshCcw size={18} className="animate-spin" />
+                            ) : (
+                              <Zap size={18} />
+                            )}
+                            Verbindung Testen
+                          </button>
+
+                          {influxTestStatus.success && (
+                            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 text-emerald-700">
+                              <CheckCircle2 size={18} />
+                              <span className="text-xs font-bold uppercase tracking-widest">Verbindung erfolgreich!</span>
+                            </div>
+                          )}
+
+                          {influxTestStatus.error && (
+                            <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl flex items-center gap-3 text-rose-700">
+                              <AlertCircle size={18} />
+                              <span className="text-xs font-bold uppercase tracking-widest">Fehler: {influxTestStatus.error}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-12 pt-12 border-t border-black/5">
+                      <p className="text-xs opacity-50 leading-relaxed">
+                        Wenn aktiviert, sendet das System bei jedem Scan den Menünamen und den aktuellen Tageszähler an InfluxDB. 
+                        Stellen Sie sicher, dass der Bucket und die Organisation in Ihrer InfluxDB-Instanz existieren.
+                      </p>
                     </div>
                   </div>
                 </div>
