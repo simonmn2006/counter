@@ -9,8 +9,8 @@
 }
 
 @keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 }
 
 .animate-marquee-slow {
@@ -61,4 +61,61 @@
 .custom-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+
+  nav, footer, .fixed, .absolute {
+    display: none !important;
+  }
+
+  .max-w-7xl, .max-w-6xl {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .custom-scrollbar {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  .grid {
+    display: block !important;
+  }
+
+  .lg\:col-span-8, .lg\:col-span-4, .lg\:col-span-12 {
+    width: 100% !important;
+    margin-bottom: 2rem !important;
+  }
+
+  .p-12, .p-10 {
+    padding: 1rem !important;
+    border: 1px solid #eee !important;
+    box-shadow: none !important;
+  }
+
+  h2 {
+    font-size: 2rem !important;
+    margin-bottom: 1rem !important;
+  }
+
+  .recharts-responsive-container {
+    width: 100% !important;
+    height: 300px !important;
+  }
 }

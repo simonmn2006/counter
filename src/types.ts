@@ -13,6 +13,11 @@ export interface Report {
   count: number;
 }
 
+export interface HourlyData {
+  hour: string;
+  count: number;
+}
+
 export interface MarqueeMessage {
   id: number;
   text: string;
@@ -22,10 +27,13 @@ export interface MarqueeMessage {
   start_date?: string;
   end_date?: string;
   speed: 'slow' | 'normal' | 'fast';
+  color?: string;
 }
 
 export interface Settings {
   scanner_id: string;
   proximity_id: string;
   calibration_ms: string;
+  op_start?: string;
+  op_end?: string;
 }

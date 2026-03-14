@@ -19,15 +19,21 @@ import {
   Utensils,
   Edit3,
   Cpu,
+  Printer,
+  Search,
   Type as TypeIcon,
   MessageSquare,
   Volume2,
   VolumeX,
   CheckCircle2,
   Target,
-  Zap
+  Zap,
+  Tally5
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
+import { de } from "date-fns/locale";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/dist/style.css";
 import { 
   BarChart, 
   Bar, 
@@ -40,7 +46,7 @@ import {
 } from "recharts";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { Meal, Report, MarqueeMessage, Settings } from "./types";
+import { Meal, Report, HourlyData, MarqueeMessage, Settings } from "./types";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -112,11 +118,144 @@ const THEMES = {
   }
 };
 
+const CustomDatePicker = ({ 
+  value, 
+  onChange, 
+  label,
+  theme 
+}: { 
+  value: string, 
+  onChange: (val: string) => void, 
+  label: string,
+  theme: any 
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const date = value ? parseISO(value) : new Date();
+
+  return (
+    <div className="relative space-y-2" onClick={(e) => e.stopPropagation()}>
+      <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">{label}</label>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsOpen(!isOpen);
+          }}
+          className={cn(
+            "w-full p-3 border text-xs outline-none transition-all flex items-center justify-between gap-4 min-w-[160px]",
+            theme.rounded,
+            theme.input
+          )}
+        >
+          <span>{format(date, "dd.MM.yyyy", { locale: de })}</span>
+          <Clock size={14} className="opacity-40" />
+        </button>
+        
+        <AnimatePresence>
+          {isOpen && (
+            <>
+              <div 
+                className="fixed inset-0 z-[60] bg-transparent cursor-default" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOpen(false);
+                }} 
+              />
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  "absolute top-full left-0 mt-2 z-[70] p-4 border shadow-2xl min-w-[300px]",
+                  theme.rounded,
+                  theme.card
+                )}
+              >
+                <DayPicker
+                  mode="single"
+                  selected={date}
+                  onSelect={(d) => {
+                    if (d) {
+                      onChange(format(d, "yyyy-MM-dd"));
+                      setIsOpen(false);
+                    }
+                  }}
+                  locale={de}
+                  className="m-0"
+                />
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+const CustomTimePicker = ({
+  value,
+  onChange,
+  label,
+  theme
+}: {
+  value: string,
+  onChange: (val: string) => void,
+  label: string,
+  theme: any
+}) => {
+  const [hours, minutes] = value.split(':');
+
+  const handleHourChange = (h: string) => {
+    onChange(`${h.padStart(2, '0')}:${minutes}`);
+  };
+
+  const handleMinuteChange = (m: string) => {
+    onChange(`${hours}:${m.padStart(2, '0')}`);
+  };
+
+  return (
+    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+      <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">{label}</label>
+      <div className="flex items-center gap-1">
+        <select
+          value={hours}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => handleHourChange(e.target.value)}
+          className={cn("p-3 border text-xs outline-none transition-all appearance-none text-center min-w-[50px] cursor-pointer", theme.rounded, theme.input)}
+        >
+          {Array.from({ length: 24 }).map((_, i) => (
+            <option key={i} value={i.toString().padStart(2, '0')}>
+              {i.toString().padStart(2, '0')}
+            </option>
+          ))}
+        </select>
+        <span className="font-bold opacity-40">:</span>
+        <select
+          value={minutes}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => handleMinuteChange(e.target.value)}
+          className={cn("p-3 border text-xs outline-none transition-all appearance-none text-center min-w-[50px] cursor-pointer", theme.rounded, theme.input)}
+        >
+          {Array.from({ length: 60 }).map((_, i) => (
+            <option key={i} value={i.toString().padStart(2, '0')}>
+              {i.toString().padStart(2, '0')}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [view, setView] = useState<"admin" | "counting" | "reports">("counting");
   const [themeKey, setThemeKey] = useState<keyof typeof THEMES>("cyber");
   const [meals, setMeals] = useState<Meal[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [hourlyData, setHourlyData] = useState<HourlyData[]>([]);
   const [marqueeMessages, setMarqueeMessages] = useState<MarqueeMessage[]>([]);
   const [settings, setSettings] = useState<Settings>({
     scanner_id: "USB Scanner 1",
@@ -141,13 +280,21 @@ export default function App() {
     repeat: 'daily',
     startDate: format(new Date(), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
-    speed: 'normal'
+    speed: 'normal',
+    color: '#000000'
   });
-  const [adminTab, setAdminTab] = useState<"assets" | "hardware" | "marquee">("assets");
+  const [adminTab, setAdminTab] = useState<"assets" | "hardware" | "marquee" | "hours">("assets");
   const [error, setError] = useState<string | null>(null);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isIdle, setIsIdle] = useState(false);
+  const [isIdle, setIsIdle] = useState(true);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [isFlashing, setIsFlashing] = useState(false);
+  const [efficiency, setEfficiency] = useState({ ppm: "0.00", totalRecent: 0 });
+  const [maintenanceStatus, setMaintenanceStatus] = useState<{ active: boolean; endTime: number }>({
+    active: false,
+    endTime: 0
+  });
   const [hardwareStatus, setHardwareStatus] = useState<{
     scannerConnected: boolean;
     proximityConnected: boolean;
@@ -182,6 +329,8 @@ export default function App() {
   const [reportFilters, setReportFilters] = useState({
     startDate: format(new Date(new Date().setDate(new Date().getDate() - 30)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
+    startTime: "00:00",
+    endTime: "23:59",
     searchQuery: ""
   });
 
@@ -222,7 +371,8 @@ export default function App() {
       window.addEventListener("mousedown", resetIdleTimer);
       window.addEventListener("keydown", resetIdleTimer);
       window.addEventListener("touchstart", resetIdleTimer);
-      resetIdleTimer();
+      // Start hidden by default as requested
+      idleTimer = setTimeout(() => setIsIdle(true), 10000); // 10 seconds default
     } else {
       setIsIdle(false);
     }
@@ -237,10 +387,7 @@ export default function App() {
   }, [view]);
 
   const formatDate = (date: Date) => {
-    const d = date.getDate().toString().padStart(2, '0');
-    const m = (date.getMonth() + 1).toString().padStart(2, '0');
-    const y = date.getFullYear();
-    return `${d}/${m}/${y}`;
+    return format(date, "EEEE, dd. MMMM yyyy", { locale: de });
   };
 
   const formatTime = (date: Date) => {
@@ -272,11 +419,14 @@ export default function App() {
       const params = new URLSearchParams({
         startDate: reportFilters.startDate,
         endDate: reportFilters.endDate,
+        startTime: reportFilters.startTime,
+        endTime: reportFilters.endTime,
         search: reportFilters.searchQuery
       });
       const res = await fetch(`/api/reports?${params.toString()}`);
       const data = await res.json();
-      setReports(data);
+      setReports(data.reports);
+      setHourlyData(data.hourlyData);
     } catch (err) {
       console.error("Failed to fetch reports", err);
     }
@@ -316,18 +466,35 @@ export default function App() {
     }
   };
 
+  const fetchEfficiency = async () => {
+    try {
+      const res = await fetch("/api/efficiency");
+      const data = await res.json();
+      setEfficiency(data);
+    } catch (err) {
+      console.error("Failed to fetch efficiency", err);
+    }
+  };
+
   useEffect(() => {
     fetchData();
     fetchReports();
     fetchMarquee();
     fetchSettings();
     fetchHardwareStatus();
+    fetchEfficiency();
+
+    const efficiencyInterval = setInterval(fetchEfficiency, 30000); // Every 30s
 
     socket.on("update", fetchData);
     socket.on("status", (status) => setIsMuted(status.isMuted));
     socket.on("hardware_status", (data) => setHardwareStatus(data));
+    socket.on("maintenance_status", (data) => setMaintenanceStatus(data));
     socket.on("scan", (data) => {
       // Visual feedback for scan
+      setIsFlashing(true);
+      setTimeout(() => setIsFlashing(false), 300);
+      
       const indicator = document.getElementById('scan-indicator');
       if (indicator) {
         indicator.style.backgroundColor = '#10b981'; // Green
@@ -338,10 +505,12 @@ export default function App() {
     });
 
     return () => {
+      clearInterval(efficiencyInterval);
       socket.off("update");
       socket.off("status");
       socket.off("scan");
       socket.off("hardware_status");
+      socket.off("maintenance_status");
     };
   }, []);
 
@@ -432,6 +601,40 @@ export default function App() {
     });
   };
 
+  const handleSearchScanner = async () => {
+    try {
+      if (!('hid' in navigator)) {
+        alert("Ihr Browser unterstützt die WebHID-API nicht. Bitte verwenden Sie Chrome oder Edge.");
+        return;
+      }
+      // @ts-ignore
+      const devices = await navigator.hid.requestDevice({ filters: [] });
+      if (devices && devices.length > 0) {
+        const device = devices[0];
+        const name = device.productName || `HID Device (${device.vendorId}:${device.productId})`;
+        updateSetting('scanner_id', name);
+      }
+    } catch (err) {
+      console.error("Scanner discovery failed", err);
+    }
+  };
+
+  const handleSearchProximity = async () => {
+    try {
+      if (!('serial' in navigator)) {
+        alert("Ihr Browser unterstützt die Web Serial-API nicht. Bitte verwenden Sie Chrome oder Edge.");
+        return;
+      }
+      // @ts-ignore
+      const port = await navigator.serial.requestPort();
+      const info = await port.getInfo();
+      const name = `Serial Port (VID:${info.usbVendorId}, PID:${info.usbProductId})`;
+      updateSetting('proximity_id', name);
+    } catch (err) {
+      console.error("Serial discovery failed", err);
+    }
+  };
+
   const handleAddMarquee = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -457,6 +660,7 @@ export default function App() {
       endTime: "23:59", 
       repeat: "daily",
       speed: "normal",
+      color: "#000000",
       startDate: format(new Date(), "yyyy-MM-dd"),
       endDate: format(new Date(), "yyyy-MM-dd")
     });
@@ -500,14 +704,47 @@ export default function App() {
     });
   };
 
+  const handlePrint = () => {
+    setIsPrinting(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrinting(false);
+    }, 100);
+  };
+
+  const handleSetMaintenance = async (minutes: number) => {
+    try {
+      await fetch("/api/maintenance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ durationMinutes: minutes }),
+      });
+    } catch (err) {
+      console.error("Failed to set maintenance", err);
+    }
+  };
+
   return (
     <div className={cn(
       "h-screen flex flex-col transition-colors duration-700 relative overflow-hidden", 
       currentTheme.bg, 
       currentTheme.text, 
       currentTheme.font,
-      isIdle && view === "counting" && "cursor-none"
+      isIdle && view === "counting" && "cursor-none",
+      isPrinting && "bg-white text-black"
     )}>
+      {/* Scan Flash Overlay */}
+      <AnimatePresence>
+        {isFlashing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.15 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-emerald-500 pointer-events-none"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Hardware Alert Overlay */}
       <AnimatePresence>
         {hardwareAlert.show && (
@@ -603,11 +840,13 @@ export default function App() {
       <AnimatePresence>
         {(!isHeaderHidden || view !== "counting") && (
           <motion.header 
-            initial={{ y: -100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -100, opacity: 0 }}
-            transition={{ duration: 0.5, ease: "easeInOut" }}
-            className={cn("sticky top-0 z-50 border-b px-8 py-6", currentTheme.header)}
+            initial={{ y: -120, opacity: 0 }}
+            animate={{ 
+              y: isIdle && view === "counting" ? -120 : 0, 
+              opacity: isIdle && view === "counting" ? 0 : 1 
+            }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className={cn("fixed top-0 left-0 right-0 z-50 border-b px-8 py-6 backdrop-blur-md", currentTheme.header)}
           >
             <div className="max-w-[1600px] mx-auto flex items-center justify-between">
               <div className={cn("flex items-center gap-6 transition-all duration-700", view === "counting" && "opacity-0 pointer-events-none")}>
@@ -618,14 +857,14 @@ export default function App() {
                   themeKey === 'swiss' ? "bg-red-600 text-white rounded-none" :
                   "bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-200"
                 )}>
-                  <ChefHat size={26} />
+                  <Tally5 size={26} />
                 </div>
                 <div>
                   <h1 className={cn(
                     "text-2xl font-bold tracking-tight transition-all duration-700",
                     currentTheme.text
                   )}>
-                    GourmettaCounter
+                    gourmetta Zähler
                   </h1>
                   <div className="flex items-center gap-2 mt-0.5">
                     <div className={cn(
@@ -675,6 +914,18 @@ export default function App() {
                   ))}
                 </div>
                 <button 
+                  onClick={toggleFullscreen}
+                  className={cn(
+                    "flex items-center gap-2 px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all duration-500",
+                    "bg-black/5 hover:bg-cyan-50 hover:text-cyan-600",
+                    currentTheme.rounded
+                  )}
+                  title="Vollbild umschalten"
+                >
+                  <Target size={14} />
+                  Vollbild
+                </button>
+                <button 
                   onClick={handleReset}
                   className={cn(
                     "flex items-center gap-2 px-5 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all duration-500",
@@ -692,7 +943,10 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto p-8 overflow-hidden flex flex-col">
+      <main className={cn(
+        "flex-1 max-w-[1600px] w-full mx-auto p-8 overflow-hidden flex flex-col transition-all duration-700",
+        !isIdle || view !== "counting" ? "pt-32" : "pt-8"
+      )}>
         <AnimatePresence mode="wait">
           {view === "counting" && (
             <motion.div 
@@ -721,6 +975,29 @@ export default function App() {
                   )}>
                     {formatTime(currentTime)}
                   </h2>
+
+                  {/* Efficiency Badge */}
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={cn(
+                      "mt-4 px-4 py-1.5 border inline-flex items-center gap-3 mx-auto",
+                      currentTheme.rounded,
+                      "bg-white/50 backdrop-blur-sm border-black/5"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Activity size={14} className="text-emerald-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">Durchsatz:</span>
+                      <span className="text-xs font-mono font-bold">{efficiency.ppm} PPM</span>
+                    </div>
+                    <div className="w-px h-3 bg-black/10" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">Letzte 30m:</span>
+                      <span className="text-xs font-mono font-bold">{efficiency.totalRecent}</span>
+                    </div>
+                  </motion.div>
+
                   <div className={cn(
                     "flex items-center justify-center gap-4 pt-4 transition-all duration-700",
                     isIdle ? "opacity-0 pointer-events-none translate-y-4" : "opacity-100 translate-y-0"
@@ -837,7 +1114,13 @@ export default function App() {
                   "h-12 overflow-hidden flex items-center relative border-y border-current/5",
                   "bg-black/5"
                 )}>
-                  <div className="whitespace-nowrap flex py-2">
+                  <div className={cn(
+                    "whitespace-nowrap flex py-2 w-full",
+                    marqueeMessages.length > 0 ? (
+                      marqueeMessages[0].speed === 'slow' ? "animate-marquee-slow" : 
+                      marqueeMessages[0].speed === 'fast' ? "animate-marquee-fast" : "animate-marquee-normal"
+                    ) : "animate-marquee-normal"
+                  )}>
                     {marqueeMessages
                       .filter(msg => {
                         const now = new Date();
@@ -850,29 +1133,18 @@ export default function App() {
                         return isTimeActive && isDateActive;
                       })
                       .map((msg, i) => (
-                        <div key={i} className={cn(
-                          "flex whitespace-nowrap",
-                          msg.speed === 'slow' ? "animate-marquee-slow" : 
-                          msg.speed === 'fast' ? "animate-marquee-fast" : "animate-marquee-normal"
-                        )}>
-                          <span className="mx-12 text-sm font-bold uppercase tracking-[0.2em]">
-                            {msg.text}
-                          </span>
-                          {/* Duplicate for seamless loop */}
-                          <span className="mx-12 text-sm font-bold uppercase tracking-[0.2em]">
-                            {msg.text}
-                          </span>
-                        </div>
+                        <span 
+                          key={i} 
+                          className="mx-12 text-sm font-bold uppercase tracking-[0.2em]"
+                          style={{ color: msg.color || 'inherit' }}
+                        >
+                          {msg.text}
+                        </span>
                       ))}
                     {marqueeMessages.length === 0 && (
-                      <div className="animate-marquee-normal flex whitespace-nowrap">
-                        <span className="mx-12 text-sm font-bold uppercase tracking-[0.2em] opacity-30">
-                          System Betriebsbereit • Qualitätskontrolle Aktiv • Sicherheit Zuerst
-                        </span>
-                        <span className="mx-12 text-sm font-bold uppercase tracking-[0.2em] opacity-30">
-                          System Betriebsbereit • Qualitätskontrolle Aktiv • Sicherheit Zuerst
-                        </span>
-                      </div>
+                      <span className="mx-12 text-sm font-bold uppercase tracking-[0.2em] opacity-30">
+                        System Betriebsbereit • Qualitätskontrolle Aktiv • Sicherheit Zuerst
+                      </span>
                     )}
                   </div>
                 </div>
@@ -900,7 +1172,7 @@ export default function App() {
                   )}>Hardware- & Bestandsverwaltungs-Kontrollzentrum</p>
                 </div>
                 <div className="flex gap-2">
-                  {(['assets', 'hardware', 'marquee'] as const).map((tab) => (
+                  {(['assets', 'hardware', 'marquee', 'hours'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setAdminTab(tab)}
@@ -912,11 +1184,72 @@ export default function App() {
                         currentTheme.rounded
                       )}
                     >
-                      {tab === 'assets' ? 'Bestände' : tab === 'hardware' ? 'Hardware' : 'Ticker'}
+                      {tab === 'assets' ? 'Bestände' : tab === 'hardware' ? 'Hardware' : tab === 'marquee' ? 'Ticker' : 'Betriebszeiten'}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {adminTab === 'hours' && (
+                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className={cn(
+                    "p-12 border transition-all duration-700",
+                    currentTheme.rounded,
+                    currentTheme.card
+                  )}>
+                    <div className="flex items-center gap-4 mb-12">
+                      <div className="w-12 h-12 flex items-center justify-center bg-cyan-500 text-white rounded-2xl shadow-lg">
+                        <Clock size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">Tägliche Betriebszeiten</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Zeitraum in dem der Zähler aktiv ist</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                      <div className="space-y-8">
+                        <CustomTimePicker
+                          label="Start der Zählung"
+                          value={settings.op_start || "06:00"}
+                          onChange={(val) => updateSetting('op_start', val)}
+                          theme={currentTheme}
+                        />
+                        <p className="text-xs opacity-50 leading-relaxed">
+                          Geben Sie die Uhrzeit ein, zu der das System jeden Tag mit der Zählung beginnen soll. 
+                          Scans vor dieser Zeit werden ignoriert.
+                        </p>
+                      </div>
+
+                      <div className="space-y-8">
+                        <CustomTimePicker
+                          label="Ende der Zählung"
+                          value={settings.op_end || "20:00"}
+                          onChange={(val) => updateSetting('op_end', val)}
+                          theme={currentTheme}
+                        />
+                        <p className="text-xs opacity-50 leading-relaxed">
+                          Geben Sie die Uhrzeit ein, zu der das System die Zählung beenden soll. 
+                          Scans nach dieser Zeit werden ignoriert.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-12 pt-12 border-t border-black/5">
+                      <div className="flex items-start gap-4 p-6 bg-cyan-50 rounded-2xl border border-cyan-100">
+                        <Activity className="text-cyan-600 mt-1" size={20} />
+                        <div>
+                          <h4 className="text-sm font-bold text-cyan-900">Automatischer Tagesabschluss</h4>
+                          <p className="text-xs text-cyan-700 mt-1 leading-relaxed">
+                            Das System setzt die Zählerstände jeden Tag um Mitternacht automatisch zurück. 
+                            Die Betriebszeiten steuern lediglich die Aktivität der Sensoren während des Tages.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {adminTab === 'assets' && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
@@ -1048,6 +1381,65 @@ export default function App() {
 
               {adminTab === 'hardware' && (
                 <div className="space-y-12">
+                  {/* Maintenance Mode Section */}
+                  <div className={cn(
+                    "p-12 border transition-all duration-700",
+                    currentTheme.rounded,
+                    currentTheme.card
+                  )}>
+                    <div className="flex items-center gap-4 mb-12">
+                      <div className="w-12 h-12 flex items-center justify-center bg-amber-500 text-white rounded-2xl shadow-lg">
+                        <Zap size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">Wartungsmodus</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Sensoren vorübergehend deaktivieren</p>
+                      </div>
+                    </div>
+
+                    {maintenanceStatus.active ? (
+                      <div className="bg-amber-50 border border-amber-200 p-8 rounded-3xl flex items-center justify-between">
+                        <div className="flex items-center gap-6">
+                          <div className="w-4 h-4 rounded-full bg-amber-500 animate-pulse" />
+                          <div>
+                            <span className="text-xl font-bold text-amber-900 block">
+                              Wartung aktiv
+                            </span>
+                            <span className="text-sm text-amber-700 opacity-70">
+                              Endet um {format(new Date(maintenanceStatus.endTime), "HH:mm:ss")}
+                            </span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => handleSetMaintenance(0)}
+                          className={cn(
+                            "px-8 py-4 bg-amber-600 text-white font-bold uppercase tracking-widest transition-all hover:bg-amber-700",
+                            currentTheme.rounded
+                          )}
+                        >
+                          Wartung Beenden
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        {[5, 10, 15, 30].map(mins => (
+                          <button
+                            key={mins}
+                            onClick={() => handleSetMaintenance(mins)}
+                            className={cn(
+                              "p-6 border text-xs font-bold uppercase tracking-widest transition-all",
+                              "hover:bg-amber-500 hover:text-white hover:border-amber-500",
+                              currentTheme.rounded,
+                              currentTheme.input
+                            )}
+                          >
+                            {mins} Min. Pause
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className={cn(
                     "p-12 border transition-all duration-700",
                     currentTheme.rounded,
@@ -1065,28 +1457,42 @@ export default function App() {
  
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
                       <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">USB-Scanner-Schnittstelle</label>
-                        <select 
-                          className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                          value={settings.scanner_id}
-                          onChange={(e) => updateSetting('scanner_id', e.target.value)}
-                        >
-                          <option value="USB-SCAN-01">Honeywell Xenon 1900</option>
-                          <option value="USB-SCAN-02">Zebra DS2208</option>
-                          <option value="EMULATOR">System-Emulator</option>
-                        </select>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">USB-Scanner Modellname</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            className={cn("flex-1 p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.scanner_id}
+                            onChange={(e) => updateSetting('scanner_id', e.target.value)}
+                            placeholder="z.B. Honeywell Xenon 1900"
+                          />
+                          <button 
+                            onClick={handleSearchScanner}
+                            className={cn("p-4 bg-black/5 hover:bg-black/10 transition-all", currentTheme.rounded)}
+                            title="Nach verbundenen Scannern suchen"
+                          >
+                            <Search size={18} />
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Näherungssensor (ESP32)</label>
-                        <select 
-                          className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                          value={settings.proximity_id}
-                          onChange={(e) => updateSetting('proximity_id', e.target.value)}
-                        >
-                          <option value="ESP32-PROX-01">ESP32 Haupttor</option>
-                          <option value="ESP32-PROX-02">ESP32 Linie B</option>
-                          <option value="DISABLED">Deaktiviert</option>
-                        </select>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Näherungssensor Modellname</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            className={cn("flex-1 p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.proximity_id}
+                            onChange={(e) => updateSetting('proximity_id', e.target.value)}
+                            placeholder="z.B. ESP32 Sensor A"
+                          />
+                          <button 
+                            onClick={handleSearchProximity}
+                            className={cn("p-4 bg-black/5 hover:bg-black/10 transition-all", currentTheme.rounded)}
+                            title="Nach verbundenen Sensoren suchen"
+                          >
+                            <Search size={18} />
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-4">
                         <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Scan-Stumm-Kalibrierung (ms)</label>
@@ -1259,6 +1665,29 @@ export default function App() {
                     </div>
 
                     <div className="space-y-8">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Vorlagen</label>
+                        <div className="flex flex-wrap gap-3">
+                          {[
+                            "Wartungsarbeiten am Förderband von 14:00 bis 15:00 Uhr.",
+                            "Schichtwechsel in 15 Minuten. Bitte Arbeitsplatz sauber hinterlassen.",
+                            "Sicherheitsunterweisung für alle Mitarbeiter um 10:00 Uhr im Pausenraum.",
+                            "Tagesziel fast erreicht! Noch 500 Einheiten bis zum Bonus."
+                          ].map((template) => (
+                            <button
+                              key={template}
+                              onClick={() => setNewMarquee({...newMarquee, text: template})}
+                              className={cn(
+                                "px-4 py-2 text-[10px] font-bold border transition-all hover:bg-black/5",
+                                currentTheme.rounded,
+                                currentTheme.input
+                              )}
+                            >
+                              {template.length > 40 ? template.substring(0, 40) + '...' : template}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Nachrichteninhalt</label>
                         <textarea 
@@ -1282,44 +1711,32 @@ export default function App() {
                         </div>
                         {newMarquee.repeat === 'once' && (
                           <>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Startdatum</label>
-                              <input 
-                                type="date"
-                                className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                                value={newMarquee.startDate}
-                                onChange={(e) => setNewMarquee({...newMarquee, startDate: e.target.value})}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Enddatum</label>
-                              <input 
-                                type="date"
-                                className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                                value={newMarquee.endDate}
-                                onChange={(e) => setNewMarquee({...newMarquee, endDate: e.target.value})}
-                              />
-                            </div>
+                            <CustomDatePicker 
+                              label="Startdatum"
+                              value={newMarquee.startDate}
+                              onChange={val => setNewMarquee({...newMarquee, startDate: val})}
+                              theme={currentTheme}
+                            />
+                            <CustomDatePicker 
+                              label="Enddatum"
+                              value={newMarquee.endDate}
+                              onChange={val => setNewMarquee({...newMarquee, endDate: val})}
+                              theme={currentTheme}
+                            />
                           </>
                         )}
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Startzeit</label>
-                          <input 
-                            type="time"
-                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                            value={newMarquee.startTime}
-                            onChange={(e) => setNewMarquee({...newMarquee, startTime: e.target.value})}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Endzeit</label>
-                          <input 
-                            type="time"
-                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                            value={newMarquee.endTime}
-                            onChange={(e) => setNewMarquee({...newMarquee, endTime: e.target.value})}
-                          />
-                        </div>
+                        <CustomTimePicker
+                          label="Startzeit"
+                          value={newMarquee.startTime}
+                          onChange={val => setNewMarquee({...newMarquee, startTime: val})}
+                          theme={currentTheme}
+                        />
+                        <CustomTimePicker
+                          label="Endzeit"
+                          value={newMarquee.endTime}
+                          onChange={val => setNewMarquee({...newMarquee, endTime: val})}
+                          theme={currentTheme}
+                        />
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Geschwindigkeit</label>
                           <select 
@@ -1331,6 +1748,28 @@ export default function App() {
                             <option value="normal">Normal</option>
                             <option value="fast">Schnell</option>
                           </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Textfarbe</label>
+                          <div className="flex gap-2">
+                            <input 
+                              type="color"
+                              className={cn("w-full h-12 p-1 border outline-none transition-all cursor-pointer", currentTheme.rounded, currentTheme.input)}
+                              value={newMarquee.color}
+                              onChange={(e) => setNewMarquee({...newMarquee, color: e.target.value})}
+                            />
+                            <div className="flex flex-wrap gap-1 max-w-[120px]">
+                              {['#000000', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ffffff'].map(c => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  className="w-5 h-5 rounded-full border border-black/10"
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => setNewMarquee({...newMarquee, color: c})}
+                                />
+                              ))}
+                            </div>
+                          </div>
                         </div>
                         <div className="flex items-end lg:col-span-1">
                           <button 
@@ -1357,11 +1796,17 @@ export default function App() {
                           currentTheme.card
                         )}>
                           <div className="flex-1">
-                            <p className="text-lg font-medium">{msg.text}</p>
+                            <p className="text-lg font-medium" style={{ color: msg.color || 'inherit' }}>{msg.text}</p>
                             <div className="flex flex-wrap gap-6 mt-2">
                               <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Aktiv: {msg.start_time} - {msg.end_time}</span>
                               <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Wiederholung: {msg.repeat === 'daily' ? 'Täglich' : 'Einmalig'} {msg.start_date ? `(${msg.start_date} bis ${msg.end_date})` : ''}</span>
                               <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Geschwindigkeit: {msg.speed === 'slow' ? 'Langsam' : msg.speed === 'normal' ? 'Normal' : 'Schnell'}</span>
+                              {msg.color && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Farbe:</span>
+                                  <div className="w-3 h-3 rounded-full border border-black/10" style={{ backgroundColor: msg.color }} />
+                                </div>
+                              )}
                             </div>
                           </div>
                           <button 
@@ -1408,23 +1853,33 @@ export default function App() {
                   )}>Langfristige Durchsatz- & Effizienzdaten</p>
                 </div>
                 
-                <div className="flex flex-wrap items-end gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">Startdatum</label>
-                    <input 
-                      type="date"
+                <div className="flex flex-wrap items-end gap-4 print:hidden">
+                  <div className="flex gap-4">
+                    <CustomDatePicker 
+                      label="Startdatum"
                       value={reportFilters.startDate}
-                      onChange={e => setReportFilters(prev => ({ ...prev, startDate: e.target.value }))}
-                      className={cn("p-3 border text-xs outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                      onChange={val => setReportFilters(prev => ({ ...prev, startDate: val }))}
+                      theme={currentTheme}
+                    />
+                    <CustomTimePicker
+                      label="Startzeit"
+                      value={reportFilters.startTime}
+                      onChange={val => setReportFilters(prev => ({ ...prev, startTime: val }))}
+                      theme={currentTheme}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">Enddatum</label>
-                    <input 
-                      type="date"
+                  <div className="flex gap-4">
+                    <CustomDatePicker 
+                      label="Enddatum"
                       value={reportFilters.endDate}
-                      onChange={e => setReportFilters(prev => ({ ...prev, endDate: e.target.value }))}
-                      className={cn("p-3 border text-xs outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                      onChange={val => setReportFilters(prev => ({ ...prev, endDate: val }))}
+                      theme={currentTheme}
+                    />
+                    <CustomTimePicker
+                      label="Endzeit"
+                      value={reportFilters.endTime}
+                      onChange={val => setReportFilters(prev => ({ ...prev, endTime: val }))}
+                      theme={currentTheme}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1437,15 +1892,66 @@ export default function App() {
                       className={cn("p-3 border text-xs outline-none transition-all w-48", currentTheme.rounded, currentTheme.input)}
                     />
                   </div>
+                  <button 
+                    onClick={handlePrint}
+                    className={cn(
+                      "p-3 border transition-all hover:bg-black/5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest",
+                      currentTheme.rounded,
+                      currentTheme.input
+                    )}
+                  >
+                    <Printer size={16} />
+                    Drucken
+                  </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                <div className={cn("lg:col-span-12 p-12 border shadow-sm transition-all duration-700", currentTheme.rounded, currentTheme.card)}>
+                  <div className="flex items-center justify-between mb-12">
+                    <h3 className={cn(
+                      "text-xs font-bold uppercase tracking-[0.3em] opacity-40"
+                    )}>Produktionslinie (Stündlicher Durchsatz)</h3>
+                    <div className="flex gap-3 items-center">
+                      <div className={cn("w-2 h-2 rounded-full", "bg-emerald-500")} />
+                      <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Einheiten pro Stunde</span>
+                    </div>
+                  </div>
+                  <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={hourlyData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="hour" 
+                          fontSize={9} 
+                          stroke={'#94a3b8'}
+                          axisLine={false}
+                          tickLine={false}
+                          dy={10}
+                        />
+                        <YAxis fontSize={9} stroke={'#94a3b8'} axisLine={false} tickLine={false} />
+                        <Tooltip 
+                          cursor={{ fill: "#f8fafc" }}
+                          contentStyle={{ 
+                            backgroundColor: '#000', 
+                            border: 'none', 
+                            borderRadius: '16px', 
+                            padding: '16px' 
+                          }}
+                          itemStyle={{ color: '#fff', fontWeight: 'bold', fontSize: '12px' }}
+                          labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}
+                        />
+                        <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#10b981" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
                 <div className={cn("lg:col-span-8 p-12 border shadow-sm transition-all duration-700", currentTheme.rounded, currentTheme.card)}>
                   <div className="flex items-center justify-between mb-12">
                     <h3 className={cn(
                       "text-xs font-bold uppercase tracking-[0.3em] opacity-40"
-                    )}>Produktionsdurchsatz</h3>
+                    )}>Täglicher Durchsatz</h3>
                     <div className="flex gap-3 items-center">
                       <div className={cn("w-2 h-2 rounded-full", "bg-cyan-500")} />
                       <span className="text-[9px] font-bold uppercase tracking-widest opacity-40">Verarbeitete Einheiten</span>
@@ -1458,7 +1964,10 @@ export default function App() {
                         <XAxis 
                           dataKey="date" 
                           fontSize={9} 
-                          tickFormatter={(val) => val.split('-').slice(1).join('/')}
+                          tickFormatter={(val) => {
+                            const d = parseISO(val);
+                            return format(d, "dd.MM.", { locale: de });
+                          }}
                           stroke={'#94a3b8'}
                           axisLine={false}
                           tickLine={false}

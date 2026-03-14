@@ -1,5 +1,5 @@
 {
-  "name": "Industrial Meal Tracker",
+  "name": "gourmetta Zähler",
   "description": "Professional meal package counter for Raspberry Pi with QR and proximity sensor integration.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["hid", "serial"]
 }
