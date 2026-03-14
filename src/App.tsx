@@ -69,7 +69,7 @@ const MEAL_COLORS = [
 
 const THEMES = {
   modern: {
-    name: "Modern Hell",
+    name: "Modernes Hell",
     bg: "bg-[#F8FAFC]",
     card: "bg-white border-slate-200 shadow-sm hover:shadow-xl",
     text: "text-slate-900",
@@ -291,9 +291,8 @@ export default function App() {
   const [isPrinting, setIsPrinting] = useState(false);
   const [isFlashing, setIsFlashing] = useState(false);
   const [efficiency, setEfficiency] = useState({ ppm: "0.00", totalRecent: 0 });
-  const [maintenanceStatus, setMaintenanceStatus] = useState<{ active: boolean; endTime: number }>({
-    active: false,
-    endTime: 0
+  const [maintenanceStatus, setMaintenanceStatus] = useState<{ active: boolean }>({
+    active: false
   });
   const [hardwareStatus, setHardwareStatus] = useState<{
     scannerConnected: boolean;
@@ -327,7 +326,7 @@ export default function App() {
 
   // Report Filter State
   const [reportFilters, setReportFilters] = useState({
-    startDate: format(new Date(new Date().setDate(new Date().getDate() - 30)), "yyyy-MM-dd"),
+    startDate: format(new Date(new Date().setDate(new Date().getDate() - 7)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
     startTime: "00:00",
     endTime: "23:59",
@@ -451,6 +450,9 @@ export default function App() {
       const res = await fetch("/api/settings");
       const data = await res.json();
       setSettings(data);
+      if (data.maintenance_active !== undefined) {
+        setMaintenanceStatus({ active: data.maintenance_active === "1" });
+      }
     } catch (err) {
       console.error("Failed to fetch settings", err);
     }
@@ -604,7 +606,7 @@ export default function App() {
   const handleSearchScanner = async () => {
     try {
       if (!('hid' in navigator)) {
-        alert("Ihr Browser unterstützt die WebHID-API nicht. Bitte verwenden Sie Chrome oder Edge.");
+        alert("Your browser does not support the WebHID API. Please use Chrome or Edge.");
         return;
       }
       // @ts-ignore
@@ -622,7 +624,7 @@ export default function App() {
   const handleSearchProximity = async () => {
     try {
       if (!('serial' in navigator)) {
-        alert("Ihr Browser unterstützt die Web Serial-API nicht. Bitte verwenden Sie Chrome oder Edge.");
+        alert("Your browser does not support the Web Serial API. Please use Chrome or Edge.");
         return;
       }
       // @ts-ignore
@@ -712,12 +714,12 @@ export default function App() {
     }, 100);
   };
 
-  const handleSetMaintenance = async (minutes: number) => {
+  const handleSetMaintenance = async (active: boolean) => {
     try {
       await fetch("/api/maintenance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ durationMinutes: minutes }),
+        body: JSON.stringify({ active }),
       });
     } catch (err) {
       console.error("Failed to set maintenance", err);
@@ -1202,7 +1204,7 @@ export default function App() {
                         <Clock size={24} />
                       </div>
                       <div>
-                        <h3 className="text-xl font-bold">Tägliche Betriebszeiten</h3>
+                        <h3 className="text-xl font-bold">Täglich Betriebszeiten</h3>
                         <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Zeitraum in dem der Zähler aktiv ist</p>
                       </div>
                     </div>
@@ -1260,7 +1262,7 @@ export default function App() {
                       </h3>
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-40 ml-1">Asset Name</label>
+                          <label className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-40 ml-1">Asset-Name</label>
                           <input 
                             required
                             value={editingMeal ? editingMeal.name : newMeal.name}
@@ -1406,12 +1408,12 @@ export default function App() {
                               Wartung aktiv
                             </span>
                             <span className="text-sm text-amber-700 opacity-70">
-                              Endet um {format(new Date(maintenanceStatus.endTime), "HH:mm:ss")}
+                              Sensoren sind vorübergehend deaktiviert
                             </span>
                           </div>
                         </div>
                         <button 
-                          onClick={() => handleSetMaintenance(0)}
+                          onClick={() => handleSetMaintenance(false)}
                           className={cn(
                             "px-8 py-4 bg-amber-600 text-white font-bold uppercase tracking-widest transition-all hover:bg-amber-700",
                             currentTheme.rounded
@@ -1421,21 +1423,17 @@ export default function App() {
                         </button>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        {[5, 10, 15, 30].map(mins => (
-                          <button
-                            key={mins}
-                            onClick={() => handleSetMaintenance(mins)}
-                            className={cn(
-                              "p-6 border text-xs font-bold uppercase tracking-widest transition-all",
-                              "hover:bg-amber-500 hover:text-white hover:border-amber-500",
-                              currentTheme.rounded,
-                              currentTheme.input
-                            )}
-                          >
-                            {mins} Min. Pause
-                          </button>
-                        ))}
+                      <div className="flex justify-center">
+                        <button
+                          onClick={() => handleSetMaintenance(true)}
+                          className={cn(
+                            "w-full max-w-md p-8 border-2 border-dashed border-amber-500/30 text-amber-600 font-bold uppercase tracking-[0.2em] transition-all",
+                            "hover:bg-amber-500 hover:text-white hover:border-amber-500 hover:border-solid",
+                            currentTheme.rounded
+                          )}
+                        >
+                          Wartungsmodus Aktivieren
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1609,7 +1607,21 @@ export default function App() {
                       
                       <div className="flex flex-wrap gap-6">
                         <button 
-                          onClick={() => fetch("/api/trigger/proximity", { method: "POST" })}
+                          onMouseDown={() => fetch("/api/trigger/proximity", { 
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ status: "activated" })
+                          })}
+                          onMouseUp={() => fetch("/api/trigger/proximity", { 
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ status: "deactivated" })
+                          })}
+                          onMouseLeave={() => fetch("/api/trigger/proximity", { 
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ status: "deactivated" })
+                          })}
                           className={cn(
                             "px-8 py-4 font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center gap-4",
                             isMuted 
@@ -1619,7 +1631,7 @@ export default function App() {
                           )}
                         >
                           <div className={cn("w-2 h-2 rounded-full", isMuted ? "bg-white animate-ping" : "bg-emerald-400")} />
-                          {isMuted ? "Näherung Aktiv" : "Näherung Auslösen"}
+                          {isMuted ? "Näherung aktiv" : "Näherung auslösen (Halten)"}
                         </button>
                         
                         <div className="h-14 w-px bg-current opacity-10 mx-2" />
@@ -1850,7 +1862,7 @@ export default function App() {
                   <p className={cn(
                     "text-[10px] uppercase tracking-[0.3em] font-bold mt-3 opacity-40",
                     currentTheme.muted
-                  )}>Langfristige Durchsatz- & Effizienzdaten</p>
+                  )}>Standardmäßig werden die letzten 7 Tage angezeigt. Wählen Sie Daten für einen größeren Zeitraum.</p>
                 </div>
                 
                 <div className="flex flex-wrap items-end gap-4 print:hidden">
@@ -1941,7 +1953,7 @@ export default function App() {
                           itemStyle={{ color: '#fff', fontWeight: 'bold', fontSize: '12px' }}
                           labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}
                         />
-                        <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#10b981" />
+                        <Bar dataKey="count" name="Einheiten" radius={[6, 6, 0, 0]} fill="#10b981" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -1985,7 +1997,7 @@ export default function App() {
                           itemStyle={{ color: '#fff', fontWeight: 'bold', fontSize: '12px' }}
                           labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}
                         />
-                        <Bar dataKey="total_meals" radius={[6, 6, 0, 0]}>
+                        <Bar dataKey="total_meals" name="Einheiten" radius={[6, 6, 0, 0]}>
                           {chartData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? '#06b6d4' : '#e2e8f0'} />
                           ))}
@@ -2003,7 +2015,7 @@ export default function App() {
                     themeKey === 'brutal' ? "bg-black shadow-none" :
                     "bg-cyan-600 shadow-cyan-500/20"
                   )}>
-                    <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-60 mb-3">Zeitraum Produktion</p>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.3em] opacity-60 mb-3">Produktionszeitraum</p>
                     <p className={cn(
                       "text-7xl font-black tracking-tighter transition-all duration-700"
                     )}>
@@ -2011,7 +2023,7 @@ export default function App() {
                     </p>
                     <div className="mt-8 flex items-center gap-3 text-white/40 text-[10px] font-bold uppercase tracking-widest">
                       <Package size={16} strokeWidth={1.5} />
-                      <span>Gesamteinheiten im gewählten Bereich</span>
+                      <span>Gesamteinheiten im gewählten Zeitraum</span>
                     </div>
                   </div>
 

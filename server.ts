@@ -49,7 +49,7 @@ async function startServer() {
     INSERT OR IGNORE INTO settings (key, value) VALUES ('calibration_ms', '3000');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('op_start', '00:00');
     INSERT OR IGNORE INTO settings (key, value) VALUES ('op_end', '23:59');
-    INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_end', '0');
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('maintenance_active', '0');
 
     CREATE TABLE IF NOT EXISTS counts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +105,8 @@ async function startServer() {
 
   // Proximity Logic State
   let isMuted = false;
-  let muteTimer: NodeJS.Timeout | null = null;
+  let proximityActive = false;
+  let activationTimer: NodeJS.Timeout | null = null;
   
   // Hardware Status State (Simulated)
   let hardwareStatus = {
@@ -135,9 +136,8 @@ async function startServer() {
   };
 
   const isMaintenanceActive = () => {
-    const setting = db.prepare("SELECT value FROM settings WHERE key = 'maintenance_end'").get() as { value: string } | undefined;
-    const maintenanceEnd = parseInt(setting?.value || "0");
-    return Date.now() < maintenanceEnd;
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'maintenance_active'").get() as { value: string } | undefined;
+    return setting?.value === "1";
   };
 
   // API Routes
@@ -264,18 +264,35 @@ async function startServer() {
 
   // Hardware Simulation / Integration Endpoints
   app.post("/api/trigger/proximity", (req, res) => {
-    isMuted = true;
-    if (muteTimer) clearTimeout(muteTimer);
+    const { status } = req.body; // "activated" or "deactivated"
     
-    const duration = getCalibrationMs();
-    io.emit("status", { isMuted: true });
-    
-    muteTimer = setTimeout(() => {
-      isMuted = false;
-      io.emit("status", { isMuted: false });
-    }, duration);
-
-    res.json({ status: "muted", duration });
+    if (status === "activated") {
+      proximityActive = true;
+      if (activationTimer) clearTimeout(activationTimer);
+      
+      const delay = getCalibrationMs();
+      
+      // Start timer to mute after delay
+      activationTimer = setTimeout(() => {
+        if (proximityActive) {
+          isMuted = true;
+          io.emit("status", { isMuted: true });
+        }
+      }, delay);
+      
+      return res.json({ status: "pending", delay });
+    } else {
+      // status === "deactivated" or anything else
+      proximityActive = false;
+      if (activationTimer) clearTimeout(activationTimer);
+      
+      if (isMuted) {
+        isMuted = false;
+        io.emit("status", { isMuted: false });
+      }
+      
+      return res.json({ status: "idle" });
+    }
   });
 
   app.post("/api/trigger/scan", (req, res) => {
@@ -317,17 +334,10 @@ async function startServer() {
   });
 
   app.post("/api/maintenance", (req, res) => {
-    const { durationMinutes } = req.body;
-    const maintenanceEnd = Date.now() + (durationMinutes * 60 * 1000);
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('maintenance_end', ?)").run(maintenanceEnd.toString());
-    io.emit("maintenance_status", { active: true, endTime: maintenanceEnd });
-    
-    // Auto-emit end status when time is up
-    setTimeout(() => {
-      io.emit("maintenance_status", { active: false, endTime: 0 });
-    }, durationMinutes * 60 * 1000);
-
-    res.json({ success: true, maintenanceEnd });
+    const { active } = req.body;
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('maintenance_active', ?)").run(active ? "1" : "0");
+    io.emit("maintenance_status", { active });
+    res.json({ success: true, active });
   });
 
   app.get("/api/efficiency", (req, res) => {
@@ -340,6 +350,16 @@ async function startServer() {
   app.get("/api/reports", (req, res) => {
     const { startDate, endDate, startTime, endTime, search } = req.query;
     
+    // Default to last 7 days if no dates provided
+    let effectiveStartDate = startDate as string;
+    let effectiveEndDate = endDate as string;
+    
+    if (!effectiveStartDate && !effectiveEndDate) {
+      const now = new Date();
+      effectiveEndDate = format(now, "yyyy-MM-dd");
+      effectiveStartDate = format(addDays(now, -7), "yyyy-MM-dd");
+    }
+
     // Base query for summary list
     let summaryQuery = `
       SELECT date(timestamp, 'localtime') as date, m.name as meal_name, COUNT(*) as count
@@ -357,16 +377,16 @@ async function startServer() {
 
     const params: any[] = [];
 
-    if (startDate) {
-      const start = `${startDate} ${startTime || "00:00"}:00`;
-      summaryQuery += " AND l.timestamp >= datetime(?, 'utc')";
-      hourlyQuery += " AND l.timestamp >= datetime(?, 'utc')";
+    if (effectiveStartDate) {
+      const start = `${effectiveStartDate} ${startTime || "00:00"}:00`;
+      summaryQuery += " AND datetime(l.timestamp, 'localtime') >= ?";
+      hourlyQuery += " AND datetime(l.timestamp, 'localtime') >= ?";
       params.push(start);
     }
-    if (endDate) {
-      const end = `${endDate} ${endTime || "23:59"}:59`;
-      summaryQuery += " AND l.timestamp <= datetime(?, 'utc')";
-      hourlyQuery += " AND l.timestamp <= datetime(?, 'utc')";
+    if (effectiveEndDate) {
+      const end = `${effectiveEndDate} ${endTime || "23:59"}:59`;
+      summaryQuery += " AND datetime(l.timestamp, 'localtime') <= ?";
+      hourlyQuery += " AND datetime(l.timestamp, 'localtime') <= ?";
       params.push(end);
     }
 
