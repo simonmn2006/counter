@@ -155,17 +155,24 @@ async function startServer() {
   };
 
   const sendToInfluxDB = async (mealName: string, count: number) => {
-    const settings = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'influx_%'").all() as { key: string, value: string }[];
-    const config = settings.reduce((acc: any, s: any) => {
+    const settingsList = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'influx_%'").all() as { key: string, value: string }[];
+    const config = settingsList.reduce((acc: any, s: any) => {
       acc[s.key] = s.value;
       return acc;
     }, {});
 
-    if (config.influx_enabled !== '1' || !config.influx_url || !config.influx_token) return;
+    // Prioritize environment variables
+    const url = process.env.INFLUX_URL || config.influx_url;
+    const token = process.env.INFLUX_TOKEN || config.influx_token;
+    const org = process.env.INFLUX_ORG || config.influx_org;
+    const bucket = process.env.INFLUX_BUCKET || config.influx_bucket;
+    const enabled = config.influx_enabled === '1' || (!!process.env.INFLUX_TOKEN && config.influx_enabled !== '0');
+
+    if (!enabled || !url || !token) return;
 
     try {
-      const client = new InfluxDB({ url: config.influx_url, token: config.influx_token });
-      const writeApi = client.getWriteApi(config.influx_org, config.influx_bucket);
+      const client = new InfluxDB({ url, token });
+      const writeApi = client.getWriteApi(org, bucket);
       
       const point = new Point('production')
         .tag('menu', mealName)
@@ -180,22 +187,30 @@ async function startServer() {
   };
 
   const sendToMariaDB = async (mealName: string, count: number, qrCode: string) => {
-    const settings = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'mariadb_%'").all() as { key: string, value: string }[];
-    const config = settings.reduce((acc: any, s: any) => {
+    const settingsList = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'mariadb_%'").all() as { key: string, value: string }[];
+    const config = settingsList.reduce((acc: any, s: any) => {
       acc[s.key] = s.value;
       return acc;
     }, {});
 
-    if (config.mariadb_enabled !== '1' || !config.mariadb_host || !config.mariadb_user) return;
+    // Prioritize environment variables
+    const host = process.env.MARIADB_HOST || config.mariadb_host;
+    const port = parseInt(process.env.MARIADB_PORT || config.mariadb_port || "3306");
+    const user = process.env.MARIADB_USER || config.mariadb_user;
+    const password = process.env.MARIADB_PASSWORD || config.mariadb_password;
+    const database = process.env.MARIADB_DATABASE || config.mariadb_database;
+    const enabled = config.mariadb_enabled === '1' || (!!process.env.MARIADB_HOST && config.mariadb_enabled !== '0');
+
+    if (!enabled || !host || !user) return;
 
     let connection;
     try {
       connection = await mysql.createConnection({
-        host: config.mariadb_host,
-        port: parseInt(config.mariadb_port || "3306"),
-        user: config.mariadb_user,
-        password: config.mariadb_password,
-        database: config.mariadb_database,
+        host,
+        port,
+        user,
+        password,
+        database,
       });
 
       // Ensure table exists
@@ -241,22 +256,30 @@ async function startServer() {
   };
 
   const syncMarqueeToMariaDB = async () => {
-    const settings = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'mariadb_%'").all() as { key: string, value: string }[];
-    const config = settings.reduce((acc: any, s: any) => {
+    const settingsList = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'mariadb_%'").all() as { key: string, value: string }[];
+    const config = settingsList.reduce((acc: any, s: any) => {
       acc[s.key] = s.value;
       return acc;
     }, {});
 
-    if (config.mariadb_enabled !== '1' || !config.mariadb_host || !config.mariadb_user) return;
+    // Prioritize environment variables
+    const host = process.env.MARIADB_HOST || config.mariadb_host;
+    const port = parseInt(process.env.MARIADB_PORT || config.mariadb_port || "3306");
+    const user = process.env.MARIADB_USER || config.mariadb_user;
+    const password = process.env.MARIADB_PASSWORD || config.mariadb_password;
+    const database = process.env.MARIADB_DATABASE || config.mariadb_database;
+    const enabled = config.mariadb_enabled === '1' || (!!process.env.MARIADB_HOST && config.mariadb_enabled !== '0');
+
+    if (!enabled || !host || !user) return;
 
     let connection;
     try {
       connection = await mysql.createConnection({
-        host: config.mariadb_host,
-        port: parseInt(config.mariadb_port || "3306"),
-        user: config.mariadb_user,
-        password: config.mariadb_password,
-        database: config.mariadb_database,
+        host,
+        port,
+        user,
+        password,
+        database,
       });
 
       // Ensure table exists
@@ -513,9 +536,15 @@ async function startServer() {
 
   app.post("/api/influxdb/test", async (req, res) => {
     const { url, token, org, bucket } = req.body;
+    // Use provided values or fallback to env
+    const testUrl = url || process.env.INFLUX_URL;
+    const testToken = token || process.env.INFLUX_TOKEN;
+    const testOrg = org || process.env.INFLUX_ORG;
+    const testBucket = bucket || process.env.INFLUX_BUCKET;
+
     try {
-      const client = new InfluxDB({ url, token });
-      const queryApi = client.getQueryApi(org);
+      const client = new InfluxDB({ url: testUrl, token: testToken });
+      const queryApi = client.getQueryApi(testOrg);
       // Simple query to test connection
       await queryApi.queryRaw('buckets()');
       res.json({ success: true });
@@ -526,14 +555,21 @@ async function startServer() {
 
   app.post("/api/mariadb/test", async (req, res) => {
     const { host, port, user, password, database } = req.body;
+    // Use provided values or fallback to env
+    const testHost = host || process.env.MARIADB_HOST;
+    const testPort = parseInt(port || process.env.MARIADB_PORT || "3306");
+    const testUser = user || process.env.MARIADB_USER;
+    const testPassword = password || process.env.MARIADB_PASSWORD;
+    const testDatabase = database || process.env.MARIADB_DATABASE;
+
     let connection;
     try {
       connection = await mysql.createConnection({
-        host,
-        port: parseInt(port || "3306"),
-        user,
-        password,
-        database,
+        host: testHost,
+        port: testPort,
+        user: testUser,
+        password: testPassword,
+        database: testDatabase,
       });
       await connection.ping();
       res.json({ success: true });

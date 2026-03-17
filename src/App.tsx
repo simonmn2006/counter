@@ -1746,46 +1746,50 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Server URL</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Server URL {process.env.INFLUX_URL ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
                             value={settings.influx_url || ""}
                             onChange={(e) => updateSetting('influx_url', e.target.value)}
-                            placeholder="http://localhost:8086"
+                            placeholder={process.env.INFLUX_URL ? "Using Environment Variable" : "http://localhost:8086"}
+                            disabled={!!process.env.INFLUX_URL}
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Organisation</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Organisation {process.env.INFLUX_ORG ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
                             value={settings.influx_org || ""}
                             onChange={(e) => updateSetting('influx_org', e.target.value)}
-                            placeholder="meine-org"
+                            placeholder={process.env.INFLUX_ORG ? "Using Environment Variable" : "meine-org"}
+                            disabled={!!process.env.INFLUX_ORG}
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Bucket Name</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Bucket Name {process.env.INFLUX_BUCKET ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
                             value={settings.influx_bucket || ""}
                             onChange={(e) => updateSetting('influx_bucket', e.target.value)}
-                            placeholder="produktion"
+                            placeholder={process.env.INFLUX_BUCKET ? "Using Environment Variable" : "produktion"}
+                            disabled={!!process.env.INFLUX_BUCKET}
                           />
                         </div>
                       </div>
 
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">API Token</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">API Token {process.env.INFLUX_TOKEN ? "(Set via Env)" : ""}</label>
                           <input
                             type="password"
                             className={cn("w-full p-4 border outline-none transition-all font-mono", currentTheme.rounded, currentTheme.input)}
                             value={settings.influx_token || ""}
                             onChange={(e) => updateSetting('influx_token', e.target.value)}
-                            placeholder="Dein InfluxDB API Token"
+                            placeholder={process.env.INFLUX_TOKEN ? "•••••••• (Env)" : "Dein InfluxDB API Token"}
+                            disabled={!!process.env.INFLUX_TOKEN}
                           />
                         </div>
                         
@@ -1869,13 +1873,14 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Host</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Host {process.env.MARIADB_HOST ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
                             value={settings.mariadb_host || ""}
                             onChange={(e) => updateSetting('mariadb_host', e.target.value)}
-                            placeholder="localhost or IP"
+                            placeholder={process.env.MARIADB_HOST ? "Using Environment Variable" : "localhost or IP"}
+                            disabled={!!process.env.MARIADB_HOST}
                           />
                         </div>
                         <div className="grid grid-cols-3 gap-4">
@@ -1887,6 +1892,7 @@ export default function App() {
                               value={settings.mariadb_port || "3306"}
                               onChange={(e) => updateSetting('mariadb_port', e.target.value)}
                               placeholder="3306"
+                              disabled={!!process.env.MARIADB_PORT}
                             />
                           </div>
                           <div className="col-span-2 space-y-2">
@@ -1897,6 +1903,7 @@ export default function App() {
                               value={settings.mariadb_database || ""}
                               onChange={(e) => updateSetting('mariadb_database', e.target.value)}
                               placeholder="production_db"
+                              disabled={!!process.env.MARIADB_DATABASE}
                             />
                           </div>
                         </div>
@@ -1908,19 +1915,21 @@ export default function App() {
                             value={settings.mariadb_user || ""}
                             onChange={(e) => updateSetting('mariadb_user', e.target.value)}
                             placeholder="db_user"
+                            disabled={!!process.env.MARIADB_USER}
                           />
                         </div>
                       </div>
 
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Password</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Password {process.env.MARIADB_PASSWORD ? "(Set via Env)" : ""}</label>
                           <input
                             type="password"
                             className={cn("w-full p-4 border outline-none transition-all font-mono", currentTheme.rounded, currentTheme.input)}
                             value={settings.mariadb_password || ""}
                             onChange={(e) => updateSetting('mariadb_password', e.target.value)}
-                            placeholder="••••••••"
+                            placeholder={process.env.MARIADB_PASSWORD ? "•••••••• (Env)" : "••••••••"}
+                            disabled={!!process.env.MARIADB_PASSWORD}
                           />
                         </div>
                         
