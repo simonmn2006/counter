@@ -284,8 +284,9 @@ export default function App() {
     speed: 'normal',
     color: '#000000'
   });
-  const [adminTab, setAdminTab] = useState<"assets" | "hardware" | "marquee" | "hours" | "influx">("assets");
+  const [adminTab, setAdminTab] = useState<"assets" | "hardware" | "marquee" | "hours" | "influx" | "mariadb">("assets");
   const [influxTestStatus, setInfluxTestStatus] = useState<{ loading: boolean; success?: boolean; error?: string }>({ loading: false });
+  const [mariadbTestStatus, setMariadbTestStatus] = useState<{ loading: boolean; success?: boolean; error?: string }>({ loading: false });
   const [error, setError] = useState<string | null>(null);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -752,6 +753,31 @@ export default function App() {
     }
   };
 
+  const handleTestMariaDB = async () => {
+    setMariadbTestStatus({ loading: true });
+    try {
+      const res = await fetch("/api/mariadb/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: settings.mariadb_host,
+          port: settings.mariadb_port,
+          user: settings.mariadb_user,
+          password: settings.mariadb_password,
+          database: settings.mariadb_database
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMariadbTestStatus({ loading: false, success: true });
+      } else {
+        setMariadbTestStatus({ loading: false, error: data.error });
+      }
+    } catch (err: any) {
+      setMariadbTestStatus({ loading: false, error: err.message });
+    }
+  };
+
   return (
     <div className={cn(
       "h-screen flex flex-col transition-colors duration-700 relative overflow-hidden", 
@@ -1200,7 +1226,7 @@ export default function App() {
                   )}>Hardware- & Bestandsverwaltungs-Kontrollzentrum</p>
                 </div>
                 <div className="flex gap-2">
-                  {(['assets', 'hardware', 'marquee', 'hours', 'influx'] as const).map((tab) => (
+                  {(['assets', 'hardware', 'marquee', 'hours', 'influx', 'mariadb'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setAdminTab(tab)}
@@ -1212,7 +1238,7 @@ export default function App() {
                         currentTheme.rounded
                       )}
                     >
-                      {tab === 'assets' ? 'Bestände' : tab === 'hardware' ? 'Hardware' : tab === 'marquee' ? 'Ticker' : tab === 'hours' ? 'Betriebszeiten' : 'InfluxDB'}
+                      {tab === 'assets' ? 'Bestände' : tab === 'hardware' ? 'Hardware' : tab === 'marquee' ? 'Ticker' : tab === 'hours' ? 'Betriebszeiten' : tab === 'influx' ? 'InfluxDB' : 'MariaDB'}
                     </button>
                   ))}
                 </div>
@@ -1802,6 +1828,141 @@ export default function App() {
                       <p className="text-xs opacity-50 leading-relaxed">
                         Wenn aktiviert, sendet das System bei jedem Scan den Menünamen und den aktuellen Tageszähler an InfluxDB. 
                         Stellen Sie sicher, dass der Bucket und die Organisation in Ihrer InfluxDB-Instanz existieren.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {adminTab === 'mariadb' && (
+                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                  <div className={cn(
+                    "p-12 border transition-all duration-700",
+                    currentTheme.rounded,
+                    currentTheme.card
+                  )}>
+                    <div className="flex items-center justify-between mb-12">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl shadow-lg">
+                          <Database size={24} />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold">MariaDB / MySQL Integration</h3>
+                          <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Mirror production logs to a relational database</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Status:</span>
+                        <button
+                          onClick={() => updateSetting('mariadb_enabled', settings.mariadb_enabled === '1' ? '0' : '1')}
+                          className={cn(
+                            "px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all",
+                            settings.mariadb_enabled === '1' ? "bg-emerald-500 text-white" : "bg-black/10 opacity-50",
+                            currentTheme.rounded
+                          )}
+                        >
+                          {settings.mariadb_enabled === '1' ? 'Enabled' : 'Disabled'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Host</label>
+                          <input
+                            type="text"
+                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.mariadb_host || ""}
+                            onChange={(e) => updateSetting('mariadb_host', e.target.value)}
+                            placeholder="localhost or IP"
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="col-span-1 space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Port</label>
+                            <input
+                              type="text"
+                              className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                              value={settings.mariadb_port || "3306"}
+                              onChange={(e) => updateSetting('mariadb_port', e.target.value)}
+                              placeholder="3306"
+                            />
+                          </div>
+                          <div className="col-span-2 space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Database Name</label>
+                            <input
+                              type="text"
+                              className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                              value={settings.mariadb_database || ""}
+                              onChange={(e) => updateSetting('mariadb_database', e.target.value)}
+                              placeholder="production_db"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Username</label>
+                          <input
+                            type="text"
+                            className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
+                            value={settings.mariadb_user || ""}
+                            onChange={(e) => updateSetting('mariadb_user', e.target.value)}
+                            placeholder="db_user"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Password</label>
+                          <input
+                            type="password"
+                            className={cn("w-full p-4 border outline-none transition-all font-mono", currentTheme.rounded, currentTheme.input)}
+                            value={settings.mariadb_password || ""}
+                            onChange={(e) => updateSetting('mariadb_password', e.target.value)}
+                            placeholder="••••••••"
+                          />
+                        </div>
+                        
+                        <div className="pt-8 space-y-4">
+                          <button
+                            onClick={handleTestMariaDB}
+                            disabled={mariadbTestStatus.loading}
+                            className={cn(
+                              "w-full py-5 font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-3",
+                              mariadbTestStatus.loading ? "opacity-50 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/20",
+                              currentTheme.rounded
+                            )}
+                          >
+                            {mariadbTestStatus.loading ? (
+                              <RefreshCcw size={18} className="animate-spin" />
+                            ) : (
+                              <Zap size={18} />
+                            )}
+                            Test Connection
+                          </button>
+
+                          {mariadbTestStatus.success && (
+                            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 text-emerald-700">
+                              <CheckCircle2 size={18} />
+                              <span className="text-xs font-bold uppercase tracking-widest">Connection Successful!</span>
+                            </div>
+                          )}
+
+                          {mariadbTestStatus.error && (
+                            <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl flex items-center gap-3 text-rose-700">
+                              <AlertCircle size={18} />
+                              <span className="text-xs font-bold uppercase tracking-widest">Error: {mariadbTestStatus.error}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-12 pt-12 border-t border-black/5">
+                      <p className="text-xs opacity-50 leading-relaxed">
+                        When enabled, the system will mirror every scan to the <code>production_logs</code> table in your MariaDB instance. 
+                        The table will be created automatically if it doesn't exist.
                       </p>
                     </div>
                   </div>

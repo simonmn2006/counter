@@ -41,5 +41,11 @@ export interface Settings {
   influx_org?: string;
   influx_bucket?: string;
   influx_enabled?: string;
+  mariadb_host?: string;
+  mariadb_port?: string;
+  mariadb_user?: string;
+  mariadb_password?: string;
+  mariadb_database?: string;
+  mariadb_enabled?: string;
   maintenance_active?: string;
 }
