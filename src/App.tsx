@@ -29,7 +29,8 @@ import {
   Target,
   Zap,
   Tally5,
-  Database
+  Database,
+  ExternalLink
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -481,6 +482,51 @@ export default function App() {
     }
   };
 
+  // Global Keyboard Scanner Logic (Keyboard Wedge Fallback)
+  useEffect(() => {
+    let scanBuffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const currentTime = Date.now();
+      
+      // Scanners are much faster than humans
+      // If the delay between keys is > 50ms, it's likely a human typing
+      if (currentTime - lastKeyTime > 50) {
+        scanBuffer = "";
+      }
+      
+      lastKeyTime = currentTime;
+
+      if (e.key === "Enter") {
+        if (scanBuffer.length >= 3) {
+          console.log("Global Scan Detected:", scanBuffer);
+          // Trigger the scan via API to ensure server-side logic runs
+          fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ qrCode: scanBuffer })
+          }).catch(err => console.error("Global scan failed", err));
+          
+          // Visual feedback
+          setIsFlashing(true);
+          setTimeout(() => setIsFlashing(false), 300);
+        }
+        scanBuffer = "";
+      } else if (e.key.length === 1) {
+        scanBuffer += e.key;
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+
   useEffect(() => {
     fetchData();
     fetchReports();
@@ -609,7 +655,12 @@ export default function App() {
   const handleSearchScanner = async () => {
     try {
       if (!('hid' in navigator)) {
-        alert("Your browser does not support the WebHID API. Please use Chrome or Edge.");
+        const isIframe = window.self !== window.top;
+        if (isIframe) {
+          alert("Hardware search is restricted in the preview window. Please open the app in a new tab (icon in top right) to connect via WebHID, or use 'Keyboard Wedge Mode' which works everywhere.");
+        } else {
+          alert("Your browser does not support the WebHID API. Please use Chrome or Edge, or use 'Keyboard Wedge Mode'.");
+        }
         return;
       }
       // @ts-ignore
@@ -627,7 +678,12 @@ export default function App() {
   const handleSearchProximity = async () => {
     try {
       if (!('serial' in navigator)) {
-        alert("Your browser does not support the Web Serial API. Please use Chrome or Edge.");
+        const isIframe = window.self !== window.top;
+        if (isIframe) {
+          alert("Hardware search is restricted in the preview window. Please open the app in a new tab (icon in top right) to connect via Web Serial, or use the Network API (POST to /api/trigger/proximity).");
+        } else {
+          alert("Your browser does not support the Web Serial API. Please use Chrome or Edge.");
+        }
         return;
       }
       // @ts-ignore
@@ -635,10 +691,45 @@ export default function App() {
       const info = await port.getInfo();
       const name = `Serial Port (VID:${info.usbVendorId}, PID:${info.usbProductId})`;
       updateSetting('proximity_id', name);
+      
+      // Store for auto-reconnect
+      localStorage.setItem('last_serial_vid', info.usbVendorId?.toString() || '');
+      localStorage.setItem('last_serial_pid', info.usbProductId?.toString() || '');
     } catch (err) {
       console.error("Serial discovery failed", err);
     }
   };
+
+  // Auto-reconnect Serial if previously paired
+  useEffect(() => {
+    const autoConnectSerial = async () => {
+      if (!('serial' in navigator)) return;
+      
+      try {
+        // @ts-ignore
+        const ports = await navigator.serial.getPorts();
+        if (ports.length > 0) {
+          const lastVid = localStorage.getItem('last_serial_vid');
+          const lastPid = localStorage.getItem('last_serial_pid');
+          
+          const port = ports.find((p: any) => {
+            const info = p.getInfo();
+            return info.usbVendorId?.toString() === lastVid && info.usbProductId?.toString() === lastPid;
+          }) || ports[0];
+
+          const info = await port.getInfo();
+          const name = `Serial Port (VID:${info.usbVendorId}, PID:${info.usbProductId})`;
+          console.log("Auto-connected to Serial:", name);
+          // We don't update setting here to avoid unnecessary DB writes, 
+          // but we know it's available.
+        }
+      } catch (err) {
+        console.warn("Serial auto-connect failed", err);
+      }
+    };
+
+    autoConnectSerial();
+  }, []);
 
   const handleAddMarquee = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1435,6 +1526,115 @@ export default function App() {
 
               {adminTab === 'hardware' && (
                 <div className="space-y-12">
+                  {/* Iframe Restriction Warning */}
+                  {window.self !== window.top && (
+                    <div className="p-8 bg-blue-50 border border-blue-100 rounded-3xl flex flex-col md:flex-row items-center gap-6 text-blue-900 animate-in fade-in slide-in-from-top-4 duration-700">
+                      <div className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl shadow-lg shrink-0">
+                        <ExternalLink size={24} />
+                      </div>
+                      <div className="flex-1 text-center md:text-left">
+                        <h4 className="font-bold text-lg">Hardware Access Restricted</h4>
+                        <p className="text-sm opacity-70">
+                          Browser security policies prevent direct USB/Serial access within the preview window. 
+                          Please open the application in a <strong>new tab</strong> to connect hardware via WebHID, or use <strong>Keyboard Wedge Mode</strong>.
+                        </p>
+                      </div>
+                      <a 
+                        href={window.location.href} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="px-6 py-3 bg-blue-600 text-white font-bold uppercase tracking-widest text-xs rounded-xl hover:bg-blue-700 transition-all whitespace-nowrap shadow-lg shadow-blue-500/20"
+                      >
+                        Open in New Tab
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Keyboard Wedge Info */}
+                  <div className={cn(
+                    "p-12 border transition-all duration-700",
+                    currentTheme.rounded,
+                    currentTheme.card
+                  )}>
+                    <div className="flex items-center gap-4 mb-12">
+                      <div className="w-12 h-12 flex items-center justify-center bg-emerald-500 text-white rounded-2xl shadow-lg">
+                        <Scan size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">Keyboard Wedge Mode (Recommended)</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Universal compatibility for USB Scanners</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+                      <div className="space-y-6">
+                        <p className="text-sm leading-relaxed opacity-70">
+                          Most USB scanners work as a "Keyboard Wedge" by default. This means they type the scanned code as if it were coming from a keyboard.
+                        </p>
+                        <ul className="space-y-4">
+                          <li className="flex items-start gap-4">
+                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1">1</div>
+                            <p className="text-xs opacity-60">Plug your scanner into any USB port.</p>
+                          </li>
+                          <li className="flex items-start gap-4">
+                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1">2</div>
+                            <p className="text-xs opacity-60">Ensure your scanner is set to send an "Enter" suffix (default setting).</p>
+                          </li>
+                          <li className="flex items-start gap-4">
+                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1">3</div>
+                            <p className="text-xs opacity-60">The app will automatically detect high-speed scans even if no input is focused.</p>
+                          </li>
+                        </ul>
+                      </div>
+                      <div className="p-8 bg-emerald-50 border border-emerald-100 rounded-3xl text-center">
+                        <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-sm mb-4 text-emerald-500">
+                          <CheckCircle2 size={32} />
+                        </div>
+                        <h4 className="font-bold text-emerald-900 mb-2">Ready to Scan</h4>
+                        <p className="text-[10px] text-emerald-700 uppercase tracking-widest">Global Listener Active</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Proximity Sensor Info */}
+                  <div className={cn(
+                    "p-12 border transition-all duration-700",
+                    currentTheme.rounded,
+                    currentTheme.card
+                  )}>
+                    <div className="flex items-center gap-4 mb-12">
+                      <div className="w-12 h-12 flex items-center justify-center bg-amber-500 text-white rounded-2xl shadow-lg">
+                        <Activity size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">ESP32 Proximity Sensor</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Connectivity Options</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                      <div className="space-y-6">
+                        <h4 className="font-bold text-sm uppercase tracking-widest opacity-60">Option A: USB Serial (Local)</h4>
+                        <p className="text-xs leading-relaxed opacity-70">
+                          Connect your ESP32 via USB. You must use the <strong>Search</strong> button in a <strong>New Tab</strong> to pair the device. Once paired, the browser will remember it.
+                        </p>
+                        <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                          <p className="text-[10px] font-bold text-amber-800 uppercase mb-1">Requirement:</p>
+                          <p className="text-[10px] text-amber-700">Must be opened in a new tab for the pairing popup to appear.</p>
+                        </div>
+                      </div>
+                      <div className="space-y-6">
+                        <h4 className="font-bold text-sm uppercase tracking-widest opacity-60">Option B: Network API (Remote)</h4>
+                        <p className="text-xs leading-relaxed opacity-70">
+                          If your ESP32 is on WiFi, it can send signals directly to the server. This works even in the preview window.
+                        </p>
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-[10px]">
+                          <p className="text-slate-400 mb-2">// POST to this endpoint:</p>
+                          <p className="text-indigo-600">POST {window.location.origin}/api/trigger/proximity</p>
+                          <p className="text-slate-600 mt-2">JSON: {"{ \"status\": \"activated\" }"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Maintenance Mode Section */}
                   <div className={cn(
                     "p-12 border transition-all duration-700",
