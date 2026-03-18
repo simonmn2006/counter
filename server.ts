@@ -220,17 +220,24 @@ async function startServer() {
     const now = new Date();
     const currentTime = format(now, "HH:mm");
     
-    if (opStart <= opEnd) {
-      return currentTime >= opStart && currentTime <= opEnd;
-    } else {
-      // Over midnight case
-      return currentTime >= opStart || currentTime <= opEnd;
+    const result = opStart <= opEnd 
+      ? (currentTime >= opStart && currentTime <= opEnd)
+      : (currentTime >= opStart || currentTime <= opEnd);
+
+    if (!result) {
+      console.warn(`Operation hours check failed: Current time ${currentTime} is outside ${opStart}-${opEnd}`);
     }
+    
+    return result;
   };
 
   const isMaintenanceActive = () => {
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'maintenance_active'").get() as { value: string } | undefined;
-    return setting?.value === "1";
+    const active = setting?.value === "1";
+    if (active) {
+      console.warn("Maintenance mode is active. Scans will be ignored.");
+    }
+    return active;
   };
 
   const sendToInfluxDB = async (mealName: string, count: number) => {
@@ -693,12 +700,12 @@ async function startServer() {
       let ports: any[] = [];
       try {
         ports = await SerialPort.list();
+        if (ports.length > 0) {
+          console.log("Detected Serial Ports:", ports.map(p => `${p.path} (VID:${p.vendorId} PID:${p.productId})`).join(", "));
+        }
       } catch (listErr: any) {
-        // Handle missing udevadm or other system-level errors gracefully
         if (listErr.message?.includes('udevadm') || listErr.code === 'ENOENT') {
-          console.warn("Hardware Check Warning: 'udevadm' not found. This is expected in some containerized environments. Hardware detection will be limited.");
-          // Fallback: If we can't list, we assume current status or try to probe known paths if needed
-          // For now, we just return empty to stop the error spam
+          console.warn("Hardware Check Warning: 'udevadm' not found. This is expected in some containerized environments.");
           ports = [];
         } else {
           throw listErr;
@@ -708,11 +715,20 @@ async function startServer() {
       const scannerPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "05f9" && p.productId?.toLowerCase() === "4204");
       const espPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "10c4" && p.productId?.toLowerCase() === "ea60");
 
+      const mealCount = db.prepare("SELECT COUNT(*) as count FROM meals WHERE is_deleted = 0").get() as { count: number };
+      if (mealCount.count === 0) {
+        console.warn("DIAGNOSTIC: No active meals found in database. Scans will not be matched.");
+      }
+
       const prevScannerStatus = hardwareStatus.scannerConnected;
       const prevProximityStatus = hardwareStatus.proximityConnected;
 
       hardwareStatus.scannerConnected = !!scannerPortInfo && (scannerPort?.isOpen || false);
       hardwareStatus.proximityConnected = !!espPortInfo && (espPort?.isOpen || false);
+
+      if (!hardwareStatus.scannerConnected && scannerPortInfo) {
+        console.warn(`Scanner port ${scannerPortInfo.path} found but not open. Attempting to open...`);
+      }
 
       // If proximity sensor is disconnected, ensure isMuted is reset
       if (!hardwareStatus.proximityConnected && isMuted) {
@@ -743,29 +759,45 @@ async function startServer() {
     
     console.log(`Initializing Gryphon Scanner on ${path}...`);
     scannerPort = new SerialPort({ path, baudRate: 9600 });
-    const parser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
     
-    parser.on('data', (data: string) => {
-      const code = data.trim();
-      if (code) {
-        console.log(`Scanner Hardware Input: ${code}`);
-        processScan(code);
+    // Using a more flexible approach to data: listen for any data and buffer it
+    let buffer = "";
+    scannerPort.on('data', (data: Buffer) => {
+      const str = data.toString();
+      console.log(`Raw Scanner Data Received: "${str.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}"`);
+      buffer += str;
+      
+      // Process if we see any line ending (\r, \n, or \r\n)
+      if (buffer.includes("\r") || buffer.includes("\n")) {
+        const codes = buffer.split(/[\r\n]+/);
+        // The last element might be an incomplete code if the buffer doesn't end with a delimiter
+        buffer = buffer.endsWith("\r") || buffer.endsWith("\n") ? "" : codes.pop() || "";
+        
+        for (const code of codes) {
+          const trimmed = code.trim();
+          if (trimmed) {
+            console.log(`Scanner Hardware Input (Parsed): ${trimmed}`);
+            processScan(trimmed);
+          }
+        }
       }
     });
 
     scannerPort.on('open', () => {
+      console.log(`Scanner port ${path} is now OPEN.`);
       hardwareStatus.scannerConnected = true;
       io.emit("hardware_status", hardwareStatus);
     });
 
     scannerPort.on('close', () => {
+      console.warn(`Scanner port ${path} CLOSED.`);
       hardwareStatus.scannerConnected = false;
       io.emit("hardware_status", hardwareStatus);
       scannerPort = null;
     });
 
     scannerPort.on('error', (err) => {
-      console.error("Scanner Port Error:", err);
+      console.error(`Scanner Port Error on ${path}:`, err);
       hardwareStatus.scannerConnected = false;
       io.emit("hardware_status", hardwareStatus);
     });
