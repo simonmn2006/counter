@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -254,7 +254,7 @@ const CustomTimePicker = ({
 
 export default function App() {
   const [view, setView] = useState<"admin" | "counting" | "reports">("counting");
-  const [themeKey, setThemeKey] = useState<keyof typeof THEMES>("cyber");
+  const [themeKey, setThemeKey] = useState<keyof typeof THEMES>("swiss");
   const [meals, setMeals] = useState<Meal[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [hourlyData, setHourlyData] = useState<HourlyData[]>([]);
@@ -775,6 +775,27 @@ export default function App() {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
       }
     });
+  };
+
+  const [calibrationInput, setCalibrationInput] = useState<string>(settings.calibration_ms);
+  const calibrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setCalibrationInput(settings.calibration_ms);
+  }, [settings.calibration_ms]);
+
+  const handleCalibrationChange = (value: string) => {
+    setCalibrationInput(value);
+    
+    if (calibrationTimeoutRef.current) {
+      clearTimeout(calibrationTimeoutRef.current);
+    }
+
+    calibrationTimeoutRef.current = setTimeout(() => {
+      if (value && !isNaN(parseInt(value))) {
+        updateSetting('calibration_ms', value);
+      }
+    }, 500);
   };
 
   const updateSetting = async (key: keyof Settings, value: string) => {
@@ -1526,112 +1547,130 @@ export default function App() {
 
               {adminTab === 'hardware' && (
                 <div className="space-y-12">
-                  {/* Iframe Restriction Warning */}
-                  {window.self !== window.top && (
-                    <div className="p-8 bg-blue-50 border border-blue-100 rounded-3xl flex flex-col md:flex-row items-center gap-6 text-blue-900 animate-in fade-in slide-in-from-top-4 duration-700">
-                      <div className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl shadow-lg shrink-0">
-                        <ExternalLink size={24} />
-                      </div>
-                      <div className="flex-1 text-center md:text-left">
-                        <h4 className="font-bold text-lg">Hardware Access Restricted</h4>
-                        <p className="text-sm opacity-70">
-                          Browser security policies prevent direct USB/Serial access within the preview window. 
-                          Please open the application in a <strong>new tab</strong> to connect hardware via WebHID, or use <strong>Keyboard Wedge Mode</strong>.
-                        </p>
-                      </div>
-                      <a 
-                        href={window.location.href} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="px-6 py-3 bg-blue-600 text-white font-bold uppercase tracking-widest text-xs rounded-xl hover:bg-blue-700 transition-all whitespace-nowrap shadow-lg shadow-blue-500/20"
-                      >
-                        Open in New Tab
-                      </a>
-                    </div>
-                  )}
-
-                  {/* Keyboard Wedge Info */}
+                  {/* Raspberry Pi Native Hardware Status */}
                   <div className={cn(
                     "p-12 border transition-all duration-700",
                     currentTheme.rounded,
                     currentTheme.card
                   )}>
                     <div className="flex items-center gap-4 mb-12">
-                      <div className="w-12 h-12 flex items-center justify-center bg-emerald-500 text-white rounded-2xl shadow-lg">
-                        <Scan size={24} />
+                      <div className="w-12 h-12 flex items-center justify-center bg-indigo-600 text-white rounded-2xl shadow-lg">
+                        <Cpu size={24} />
                       </div>
                       <div>
-                        <h3 className="text-xl font-bold">Keyboard Wedge Mode (Recommended)</h3>
-                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Universal compatibility for USB Scanners</p>
+                        <h3 className="text-xl font-bold">Raspberry Pi Native Hardware</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Direct Server-Side Integration</p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-                      <div className="space-y-6">
-                        <p className="text-sm leading-relaxed opacity-70">
-                          Most USB scanners work as a "Keyboard Wedge" by default. This means they type the scanned code as if it were coming from a keyboard.
-                        </p>
-                        <ul className="space-y-4">
-                          <li className="flex items-start gap-4">
-                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1">1</div>
-                            <p className="text-xs opacity-60">Plug your scanner into any USB port.</p>
-                          </li>
-                          <li className="flex items-start gap-4">
-                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1">2</div>
-                            <p className="text-xs opacity-60">Ensure your scanner is set to send an "Enter" suffix (default setting).</p>
-                          </li>
-                          <li className="flex items-start gap-4">
-                            <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[10px] font-bold shrink-0 mt-1">3</div>
-                            <p className="text-xs opacity-60">The app will automatically detect high-speed scans even if no input is focused.</p>
-                          </li>
-                        </ul>
-                      </div>
-                      <div className="p-8 bg-emerald-50 border border-emerald-100 rounded-3xl text-center">
-                        <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-sm mb-4 text-emerald-500">
-                          <CheckCircle2 size={32} />
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Scanner Status */}
+                      <div className={cn(
+                        "p-8 border flex items-center justify-between transition-all duration-500",
+                        currentTheme.rounded,
+                        hardwareStatus.scannerConnected ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"
+                      )}>
+                        <div className="flex items-center gap-6">
+                          <div className={cn(
+                            "w-12 h-12 flex items-center justify-center rounded-xl shadow-sm",
+                            hardwareStatus.scannerConnected ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+                          )}>
+                            <Scan size={24} />
+                          </div>
+                          <div>
+                            <h4 className={cn("font-bold", hardwareStatus.scannerConnected ? "text-emerald-900" : "text-rose-900")}>
+                              Gryphon Scanner
+                            </h4>
+                            <p className={cn("text-[10px] uppercase tracking-widest opacity-60", hardwareStatus.scannerConnected ? "text-emerald-700" : "text-rose-700")}>
+                              {hardwareStatus.scannerConnected ? "Connected (05f9:4204)" : "Not Detected"}
+                            </p>
+                          </div>
                         </div>
-                        <h4 className="font-bold text-emerald-900 mb-2">Ready to Scan</h4>
-                        <p className="text-[10px] text-emerald-700 uppercase tracking-widest">Global Listener Active</p>
+                        {hardwareStatus.scannerConnected ? (
+                          <div className="flex items-center gap-2 text-emerald-600 font-bold text-[10px] uppercase tracking-widest">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            Live
+                          </div>
+                        ) : (
+                          <div className="text-rose-600 font-bold text-[10px] uppercase tracking-widest">Offline</div>
+                        )}
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Proximity Sensor Info */}
-                  <div className={cn(
-                    "p-12 border transition-all duration-700",
-                    currentTheme.rounded,
-                    currentTheme.card
-                  )}>
-                    <div className="flex items-center gap-4 mb-12">
-                      <div className="w-12 h-12 flex items-center justify-center bg-amber-500 text-white rounded-2xl shadow-lg">
-                        <Activity size={24} />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold">ESP32 Proximity Sensor</h3>
-                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Connectivity Options</p>
+                      {/* ESP32 Status */}
+                      <div className={cn(
+                        "p-8 border flex flex-col gap-6 transition-all duration-500",
+                        currentTheme.rounded,
+                        hardwareStatus.proximityConnected ? "bg-emerald-50 border-emerald-100" : "bg-rose-50 border-rose-100"
+                      )}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-6">
+                            <div className={cn(
+                              "w-12 h-12 flex items-center justify-center rounded-xl shadow-sm",
+                              hardwareStatus.proximityConnected ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+                            )}>
+                              <Activity size={24} />
+                            </div>
+                            <div>
+                              <h4 className={cn("font-bold", hardwareStatus.proximityConnected ? "text-emerald-900" : "text-rose-900")}>
+                                ESP32 Sensor
+                              </h4>
+                              <p className={cn("text-[10px] uppercase tracking-widest opacity-60", hardwareStatus.proximityConnected ? "text-emerald-700" : "text-rose-700")}>
+                                {hardwareStatus.proximityConnected ? "Connected (10c4:ea60)" : "Not Detected"}
+                              </p>
+                            </div>
+                          </div>
+                          {hardwareStatus.proximityConnected ? (
+                            <div className="flex items-center gap-2 text-emerald-600 font-bold text-[10px] uppercase tracking-widest">
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              Live
+                            </div>
+                          ) : (
+                            <div className="text-rose-600 font-bold text-[10px] uppercase tracking-widest">Offline</div>
+                          )}
+                        </div>
+
+                        <div className="pt-6 border-t border-black/5 space-y-3">
+                          <label className={cn(
+                            "text-[9px] font-bold uppercase tracking-widest opacity-60",
+                            hardwareStatus.proximityConnected ? "text-emerald-900" : "text-rose-900"
+                          )}>
+                            Zeit-Kalibrierung (ms)
+                          </label>
+                          <div className="flex gap-4 items-center">
+                            <input
+                              type="number"
+                              className={cn(
+                                "flex-1 p-3 text-xs border outline-none transition-all text-slate-900", 
+                                currentTheme.rounded,
+                                hardwareStatus.proximityConnected ? "bg-white border-emerald-200 focus:border-emerald-500" : "bg-white border-rose-200 focus:border-rose-500"
+                              )}
+                              value={calibrationInput}
+                              onChange={(e) => handleCalibrationChange(e.target.value)}
+                              onBlur={() => {
+                                if (calibrationInput !== settings.calibration_ms) {
+                                  updateSetting('calibration_ms', calibrationInput);
+                                }
+                              }}
+                            />
+                            <div className="flex items-center gap-2 px-3 py-2 bg-black/5 rounded-lg">
+                              <div className={cn(
+                                "w-1.5 h-1.5 rounded-full animate-pulse",
+                                calibrationInput === settings.calibration_ms ? "bg-emerald-500" : "bg-amber-500"
+                              )} />
+                              <span className="text-[8px] font-bold uppercase tracking-widest">
+                                {calibrationInput === settings.calibration_ms ? "Sync" : "Saving..."}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                      <div className="space-y-6">
-                        <h4 className="font-bold text-sm uppercase tracking-widest opacity-60">Option A: USB Serial (Local)</h4>
-                        <p className="text-xs leading-relaxed opacity-70">
-                          Connect your ESP32 via USB. You must use the <strong>Search</strong> button in a <strong>New Tab</strong> to pair the device. Once paired, the browser will remember it.
-                        </p>
-                        <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-                          <p className="text-[10px] font-bold text-amber-800 uppercase mb-1">Requirement:</p>
-                          <p className="text-[10px] text-amber-700">Must be opened in a new tab for the pairing popup to appear.</p>
-                        </div>
-                      </div>
-                      <div className="space-y-6">
-                        <h4 className="font-bold text-sm uppercase tracking-widest opacity-60">Option B: Network API (Remote)</h4>
-                        <p className="text-xs leading-relaxed opacity-70">
-                          If your ESP32 is on WiFi, it can send signals directly to the server. This works even in the preview window.
-                        </p>
-                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-[10px]">
-                          <p className="text-slate-400 mb-2">// POST to this endpoint:</p>
-                          <p className="text-indigo-600">POST {window.location.origin}/api/trigger/proximity</p>
-                          <p className="text-slate-600 mt-2">JSON: {"{ \"status\": \"activated\" }"}</p>
-                        </div>
-                      </div>
+
+                    <div className="mt-8 p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        <strong className="text-slate-900">Note:</strong> These devices are managed directly by the Raspberry Pi server. 
+                        If they are connected but show as "Not Detected", please ensure they are plugged in and restart the application service via PM2.
+                      </p>
                     </div>
                   </div>
 
@@ -1688,225 +1727,6 @@ export default function App() {
                         </button>
                       </div>
                     )}
-                  </div>
-
-                  <div className={cn(
-                    "p-12 border transition-all duration-700",
-                    currentTheme.rounded,
-                    currentTheme.card
-                  )}>
-                    <div className="flex items-center gap-4 mb-12">
-                      <div className="w-12 h-12 flex items-center justify-center bg-cyan-500 text-white rounded-2xl shadow-lg">
-                        <Cpu size={24} />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold">Hardware-Konfiguration</h3>
-                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Scanner- & Sensor-Integration</p>
-                      </div>
-                    </div>
- 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                      <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">USB-Scanner Modellname</label>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text"
-                            className={cn("flex-1 p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                            value={settings.scanner_id}
-                            onChange={(e) => updateSetting('scanner_id', e.target.value)}
-                            placeholder="z.B. Honeywell Xenon 1900"
-                          />
-                          <button 
-                            onClick={handleSearchScanner}
-                            className={cn("p-4 bg-black/5 hover:bg-black/10 transition-all", currentTheme.rounded)}
-                            title="Nach verbundenen Scannern suchen"
-                          >
-                            <Search size={18} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Näherungssensor Modellname</label>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text"
-                            className={cn("flex-1 p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                            value={settings.proximity_id}
-                            onChange={(e) => updateSetting('proximity_id', e.target.value)}
-                            placeholder="z.B. ESP32 Sensor A"
-                          />
-                          <button 
-                            onClick={handleSearchProximity}
-                            className={cn("p-4 bg-black/5 hover:bg-black/10 transition-all", currentTheme.rounded)}
-                            title="Nach verbundenen Sensoren suchen"
-                          >
-                            <Search size={18} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Scan-Stumm-Kalibrierung (ms)</label>
-                        <div className="flex gap-4 items-center">
-                          <input
-                            type="number"
-                            className={cn("flex-1 p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
-                            value={settings.calibration_ms}
-                            onChange={(e) => updateSetting('calibration_ms', e.target.value)}
-                          />
-                          <div className="flex items-center gap-2 px-4 py-2 bg-black/5 rounded-lg">
-                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-[9px] font-bold uppercase tracking-widest">Live-Sync</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Hardware Connection Simulation */}
-                  <div className={cn(
-                    "p-12 border transition-all duration-700",
-                    currentTheme.rounded,
-                    currentTheme.card
-                  )}>
-                    <div className="flex items-center gap-4 mb-12">
-                      <div className="w-12 h-12 flex items-center justify-center bg-rose-500 text-white rounded-2xl shadow-lg">
-                        <Zap size={24} />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold">Verbindungs-Simulation</h3>
-                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-1">Status der Hardware-Verbindung testen</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                      <div className="flex items-center justify-between p-6 bg-black/5 rounded-2xl">
-                        <div className="flex items-center gap-4">
-                          <div className={cn("w-3 h-3 rounded-full", hardwareStatus.scannerConnected ? "bg-emerald-500" : "bg-rose-500")} />
-                          <div>
-                            <p className="text-xs font-bold uppercase tracking-widest">QR-Scanner</p>
-                            <p className="text-[10px] opacity-40 uppercase">{hardwareStatus.scannerConnected ? "Verbunden" : "Getrennt"}</p>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => fetch("/api/hardware/status", { 
-                            method: "POST", 
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ scannerConnected: !hardwareStatus.scannerConnected })
-                          })}
-                          className={cn(
-                            "px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all",
-                            hardwareStatus.scannerConnected ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500",
-                            "rounded-xl"
-                          )}
-                        >
-                          {hardwareStatus.scannerConnected ? "Trennen" : "Verbinden"}
-                        </button>
-                      </div>
-
-                      <div className="flex items-center justify-between p-6 bg-black/5 rounded-2xl">
-                        <div className="flex items-center gap-4">
-                          <div className={cn("w-3 h-3 rounded-full", hardwareStatus.proximityConnected ? "bg-emerald-500" : "bg-rose-500")} />
-                          <div>
-                            <p className="text-xs font-bold uppercase tracking-widest">Näherungssensor</p>
-                            <p className="text-[10px] opacity-40 uppercase">{hardwareStatus.proximityConnected ? "Verbunden" : "Getrennt"}</p>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => fetch("/api/hardware/status", { 
-                            method: "POST", 
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ proximityConnected: !hardwareStatus.proximityConnected })
-                          })}
-                          className={cn(
-                            "px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all",
-                            hardwareStatus.proximityConnected ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500",
-                            "rounded-xl"
-                          )}
-                        >
-                          {hardwareStatus.proximityConnected ? "Trennen" : "Verbinden"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={cn(
-                    "p-12 shadow-2xl overflow-hidden relative transition-all duration-700",
-                    currentTheme.rounded,
-                    themeKey === 'cyber' ? "bg-[#0F0F12] border border-zinc-800" : 
-                    themeKey === 'brutal' ? "bg-black text-white border-4 border-black" : 
-                    themeKey === 'swiss' ? "bg-white text-black border border-black/10" :
-                    "bg-slate-900 text-white"
-                  )}>
-                    <div className="absolute top-0 right-0 p-16 opacity-5">
-                      <Activity size={200} />
-                    </div>
-                    <div className="relative z-10">
-                      <div className="flex items-center gap-4 mb-12">
-                        <div className={cn(
-                          "w-10 h-10 flex items-center justify-center transition-all duration-700",
-                          "bg-cyan-500 text-black rounded-xl"
-                        )}>
-                          <Scan size={20} />
-                        </div>
-                        <div>
-                          <h3 className={cn(
-                            "text-xs font-bold uppercase tracking-[0.3em]",
-                            "text-cyan-300"
-                          )}>Hardware-Diagnose & Simulation</h3>
-                          <p className="text-[9px] opacity-40 uppercase tracking-widest mt-1">Manuelle Übersteuerung und Sensortests</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-6">
-                        <button 
-                          onMouseDown={() => fetch("/api/trigger/proximity", { 
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ status: "activated" })
-                          })}
-                          onMouseUp={() => fetch("/api/trigger/proximity", { 
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ status: "deactivated" })
-                          })}
-                          onMouseLeave={() => fetch("/api/trigger/proximity", { 
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ status: "deactivated" })
-                          })}
-                          className={cn(
-                            "px-8 py-4 font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center gap-4",
-                            isMuted 
-                              ? "bg-rose-500 text-white shadow-lg shadow-rose-500/20" 
-                              : "bg-white/10 hover:bg-white/20 text-white",
-                            currentTheme.rounded
-                          )}
-                        >
-                          <div className={cn("w-2 h-2 rounded-full", isMuted ? "bg-white animate-ping" : "bg-emerald-400")} />
-                          {isMuted ? "Näherung aktiv" : "Näherung auslösen (Halten)"}
-                        </button>
-                        
-                        <div className="h-14 w-px bg-current opacity-10 mx-2" />
-                        
-                        {meals.map((m, idx) => (
-                          <button 
-                            key={m.id}
-                            onClick={() => fetch("/api/trigger/scan", { 
-                              method: "POST", 
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ qrCode: m.qr_code })
-                            })}
-                            className={cn(
-                              "px-6 py-4 text-[9px] font-bold uppercase tracking-[0.2em] transition-all duration-500 border",
-                              "bg-white/5 hover:bg-white/10 border-white/5 hover:border-white/20 text-white",
-                              currentTheme.rounded
-                            )}
-                          >
-                            Scannen {m.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}

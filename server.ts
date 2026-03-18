@@ -8,6 +8,8 @@ import { format, startOfDay, addDays } from "date-fns";
 
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
 import mysql from "mysql2/promise";
+import { SerialPort } from "serialport";
+import { ReadlineParser } from "@serialport/parser-readline";
 
 async function startServer() {
   const app = express();
@@ -131,6 +133,79 @@ async function startServer() {
   const getCalibrationMs = () => {
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'calibration_ms'").get() as { value: string } | undefined;
     return parseInt(setting?.value || "3000");
+  };
+
+  const processProximity = (status: "activated" | "deactivated") => {
+    if (status === "activated") {
+      proximityActive = true;
+      if (activationTimer) clearTimeout(activationTimer);
+      
+      const delay = getCalibrationMs();
+      
+      // Start timer to mute after delay
+      activationTimer = setTimeout(() => {
+        if (proximityActive) {
+          isMuted = true;
+          io.emit("status", { isMuted: true });
+        }
+      }, delay);
+      
+      return { status: "pending", delay };
+    } else {
+      proximityActive = false;
+      if (activationTimer) clearTimeout(activationTimer);
+      
+      if (isMuted) {
+        isMuted = false;
+        io.emit("status", { isMuted: false });
+      }
+      
+      return { status: "idle" };
+    }
+  };
+
+  const processScan = (qrCode: string) => {
+    if (!isWithinOperationHours()) {
+      return { status: "ignored", reason: "outside_operation_hours" };
+    }
+
+    if (isMaintenanceActive()) {
+      return { status: "ignored", reason: "maintenance_active" };
+    }
+
+    if (isMuted) {
+      return { status: "ignored", reason: "proximity_active" };
+    }
+
+    const meal = db.prepare("SELECT id FROM meals WHERE qr_code = ?").get(qrCode) as { id: number } | undefined;
+    
+    if (!meal) {
+      return { status: "error", message: "Meal not found" };
+    }
+
+    const today = format(new Date(), "yyyy-MM-dd");
+    
+    let currentCount = 0;
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO counts (meal_id, date, count) 
+        VALUES (?, ?, 1)
+        ON CONFLICT(meal_id, date) DO UPDATE SET count = count + 1
+      `).run(meal.id, today);
+      
+      db.prepare("INSERT INTO logs (meal_id) VALUES (?)").run(meal.id);
+      
+      const row = db.prepare("SELECT count FROM counts WHERE meal_id = ? AND date = ?").get(meal.id, today) as { count: number };
+      currentCount = row.count;
+    })();
+
+    const mealInfo = db.prepare("SELECT name, qr_code FROM meals WHERE id = ?").get(meal.id) as { name: string, qr_code: string };
+    sendToInfluxDB(mealInfo.name, currentCount);
+    sendToMariaDB(mealInfo.name, currentCount, mealInfo.qr_code);
+
+    io.emit("update");
+    io.emit("scan", { qrCode, timestamp: new Date() });
+    return { status: "counted", mealId: meal.id };
   };
 
   const isWithinOperationHours = () => {
@@ -529,6 +604,15 @@ async function startServer() {
 
   app.post("/api/settings", (req, res) => {
     const { key, value } = req.body;
+    
+    // Validation for calibration_ms
+    if (key === 'calibration_ms') {
+      const val = parseInt(value.toString());
+      if (isNaN(val) || val < 0) {
+        return res.status(400).json({ error: "Invalid calibration value. Must be a positive number." });
+      }
+    }
+
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value.toString());
     syncSettingsToMariaDB();
     res.json({ success: true });
@@ -583,81 +667,76 @@ async function startServer() {
   // Hardware Simulation / Integration Endpoints
   app.post("/api/trigger/proximity", (req, res) => {
     const { status } = req.body; // "activated" or "deactivated"
-    
-    if (status === "activated") {
-      proximityActive = true;
-      if (activationTimer) clearTimeout(activationTimer);
-      
-      const delay = getCalibrationMs();
-      
-      // Start timer to mute after delay
-      activationTimer = setTimeout(() => {
-        if (proximityActive) {
-          isMuted = true;
-          io.emit("status", { isMuted: true });
-        }
-      }, delay);
-      
-      return res.json({ status: "pending", delay });
-    } else {
-      // status === "deactivated" or anything else
-      proximityActive = false;
-      if (activationTimer) clearTimeout(activationTimer);
-      
-      if (isMuted) {
-        isMuted = false;
-        io.emit("status", { isMuted: false });
-      }
-      
-      return res.json({ status: "idle" });
-    }
+    const result = processProximity(status as "activated" | "deactivated");
+    res.json(result);
   });
 
   app.post("/api/trigger/scan", (req, res) => {
     const { qrCode } = req.body;
-    
-    if (!isWithinOperationHours()) {
-      return res.json({ status: "ignored", reason: "outside_operation_hours" });
+    const result = processScan(qrCode);
+    if (result.status === "error") {
+      return res.status(404).json(result);
     }
-
-    if (isMaintenanceActive()) {
-      return res.json({ status: "ignored", reason: "maintenance_active" });
-    }
-
-    if (isMuted) {
-      return res.json({ status: "ignored", reason: "proximity_active" });
-    }
-
-    const meal = db.prepare("SELECT id FROM meals WHERE qr_code = ?").get(qrCode) as { id: number } | undefined;
-    
-    if (!meal) {
-      return res.status(404).json({ status: "error", message: "Meal not found" });
-    }
-
-    const today = format(new Date(), "yyyy-MM-dd");
-    
-    let currentCount = 0;
-    db.transaction(() => {
-      db.prepare(`
-        INSERT INTO counts (meal_id, date, count) 
-        VALUES (?, ?, 1)
-        ON CONFLICT(meal_id, date) DO UPDATE SET count = count + 1
-      `).run(meal.id, today);
-      
-      db.prepare("INSERT INTO logs (meal_id) VALUES (?)").run(meal.id);
-      
-      const row = db.prepare("SELECT count FROM counts WHERE meal_id = ? AND date = ?").get(meal.id, today) as { count: number };
-      currentCount = row.count;
-    })();
-
-    const mealInfo = db.prepare("SELECT name, qr_code FROM meals WHERE id = ?").get(meal.id) as { name: string, qr_code: string };
-    sendToInfluxDB(mealInfo.name, currentCount);
-    sendToMariaDB(mealInfo.name, currentCount, mealInfo.qr_code);
-
-    io.emit("update");
-    io.emit("scan", { qrCode, timestamp: new Date() });
-    res.json({ status: "counted", mealId: meal.id });
+    res.json(result);
   });
+
+  // Serial Port Hardware Integration
+  const initHardware = async () => {
+    try {
+      const ports = await SerialPort.list();
+      console.log("Available Serial Ports:", ports.map(p => `${p.path} (${p.vendorId}:${p.productId})`));
+
+      // 05f9:4204 -> Gryphon Scanner
+      const scannerPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "05f9" && p.productId?.toLowerCase() === "4204");
+      if (scannerPortInfo) {
+        console.log(`Initializing Gryphon Scanner on ${scannerPortInfo.path}...`);
+        const scannerPort = new SerialPort({ path: scannerPortInfo.path, baudRate: 9600 });
+        const parser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+        parser.on('data', (data: string) => {
+          const code = data.trim();
+          if (code) {
+            console.log(`Scanner Hardware Input: ${code}`);
+            processScan(code);
+          }
+        });
+        scannerPort.on('error', (err) => console.error("Scanner Port Error:", err));
+        hardwareStatus.scannerConnected = true;
+      } else {
+        console.warn("Gryphon Scanner (05f9:4204) not found on serial ports.");
+        hardwareStatus.scannerConnected = false;
+      }
+
+      // 10c4:ea60 -> ESP32 CP210x
+      const espPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "10c4" && p.productId?.toLowerCase() === "ea60");
+      if (espPortInfo) {
+        console.log(`Initializing ESP32 Sensor on ${espPortInfo.path}...`);
+        const espPort = new SerialPort({ path: espPortInfo.path, baudRate: 115200 });
+        const parser = espPort.pipe(new ReadlineParser({ delimiter: '\n' }));
+        parser.on('data', (data: string) => {
+          const signal = data.trim().toLowerCase();
+          if (signal === "activated" || signal === "1" || signal === "on") {
+            console.log("ESP32 Signal: Activated");
+            processProximity("activated");
+          } else if (signal === "deactivated" || signal === "0" || signal === "off") {
+            console.log("ESP32 Signal: Deactivated");
+            processProximity("deactivated");
+          }
+        });
+        espPort.on('error', (err) => console.error("ESP32 Port Error:", err));
+        hardwareStatus.proximityConnected = true;
+      } else {
+        console.warn("ESP32 (10c4:ea60) not found on serial ports.");
+        hardwareStatus.proximityConnected = false;
+      }
+
+      io.emit("hardware_status", hardwareStatus);
+    } catch (err) {
+      console.error("Hardware Initialization Error:", err);
+    }
+  };
+
+  // Run hardware init after a short delay to ensure system is ready
+  setTimeout(initHardware, 5000);
 
   app.post("/api/maintenance", (req, res) => {
     const { active } = req.body;
