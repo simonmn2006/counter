@@ -1,3 +1,4 @@
+console.log(">>> SERVER SCRIPT LOADED (LINE 1) <<<");
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -11,15 +12,22 @@ import mysql from "mysql2/promise";
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
 
+console.log(">>> SERVER SCRIPT LOADED <<<");
+
 async function startServer() {
+  console.log(">>> STARTING SERVER FUNCTION <<<");
   const app = express();
   const httpServer = createServer(app);
   const io = new Server(httpServer);
   const PORT = 3000;
 
+  console.log(">>> INITIALIZING DATABASE <<<");
   // Database Setup
   const db = new Database("tracker.db");
   db.pragma("journal_mode = WAL");
+
+  const allMeals = db.prepare("SELECT id, name, qr_code FROM meals WHERE is_deleted = 0").all();
+  console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS meals (
@@ -165,6 +173,17 @@ async function startServer() {
   };
 
   const processScan = (qrCode: string) => {
+    // Normalize QR Code: strip common prefixes and trim
+    let normalizedCode = qrCode.trim();
+    const prefixes = ["tel:", "mailto:", "http://", "https://", "smsto:", "msg:", "geo:"];
+    
+    for (const prefix of prefixes) {
+      if (normalizedCode.toLowerCase().startsWith(prefix)) {
+        normalizedCode = normalizedCode.substring(prefix.length);
+        break;
+      }
+    }
+
     if (!isWithinOperationHours()) {
       return { status: "ignored", reason: "outside_operation_hours" };
     }
@@ -174,14 +193,22 @@ async function startServer() {
     }
 
     if (isMuted) {
-      console.warn(`Scan ignored: Proximity sensor is active (Muted). QR Code: ${qrCode}`);
+      console.warn(`Scan ignored: Proximity sensor is active (Muted). QR Code: ${qrCode} (Normalized: ${normalizedCode})`);
       return { status: "ignored", reason: "proximity_active" };
     }
 
-    const meal = db.prepare("SELECT id, name FROM meals WHERE qr_code = ?").get(qrCode) as { id: number, name: string } | undefined;
+    // Try exact match first, then normalized match
+    let meal = db.prepare("SELECT id, name FROM meals WHERE qr_code = ?").get(qrCode) as { id: number, name: string } | undefined;
+    
+    if (!meal && normalizedCode !== qrCode) {
+      console.log(`Exact match failed for ${qrCode}, trying normalized: ${normalizedCode}`);
+      meal = db.prepare("SELECT id, name FROM meals WHERE qr_code = ?").get(normalizedCode) as { id: number, name: string } | undefined;
+    }
     
     if (!meal) {
-      console.error(`Scan error: Meal not found for QR Code: ${qrCode}`);
+      const activeMeals = db.prepare("SELECT name, qr_code FROM meals WHERE is_deleted = 0 LIMIT 10").all();
+      console.error(`Scan error: Meal not found for QR Code: ${qrCode} (Normalized: ${normalizedCode})`);
+      console.log(">>> CURRENT ACTIVE MEALS (First 10):", JSON.stringify(activeMeals, null, 2));
       return { status: "error", message: "Meal not found" };
     }
 
@@ -954,4 +981,8 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error(">>> CRITICAL STARTUP ERROR <<<");
+  console.error(err);
+  process.exit(1);
+});

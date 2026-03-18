@@ -512,10 +512,6 @@ export default function App() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ qrCode: scanBuffer })
           }).catch(err => console.error("Global scan failed", err));
-          
-          // Visual feedback
-          setIsFlashing(true);
-          setTimeout(() => setIsFlashing(false), 300);
         }
         scanBuffer = "";
       } else if (e.key.length === 1) {
@@ -542,10 +538,6 @@ export default function App() {
     socket.on("hardware_status", (data) => setHardwareStatus(data));
     socket.on("maintenance_status", (data) => setMaintenanceStatus(data));
     socket.on("scan", (data) => {
-      // Visual feedback for scan
-      setIsFlashing(true);
-      setTimeout(() => setIsFlashing(false), 300);
-      
       const indicator = document.getElementById('scan-indicator');
       if (indicator) {
         indicator.style.backgroundColor = '#10b981'; // Green
@@ -899,18 +891,6 @@ export default function App() {
       isIdle && view === "counting" && "cursor-none",
       isPrinting && "bg-white text-black"
     )}>
-      {/* Scan Flash Overlay */}
-      <AnimatePresence>
-        {isFlashing && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.15 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-emerald-500 pointer-events-none"
-          />
-        )}
-      </AnimatePresence>
-
       {/* Hardware Alert Overlay */}
       <AnimatePresence>
         {hardwareAlert.show && (
@@ -1222,25 +1202,36 @@ export default function App() {
                         )}>{meal.name}</h3>
                       </div>
 
-                      <div className="flex-1 flex flex-col justify-center items-center py-2 relative z-10">
-                        <div className="flex items-end gap-3">
-                          <span className={cn(
-                            "text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all duration-700",
-                            goalMet ? "text-emerald-500" : "text-slate-900"
-                          )}>{meal.count}</span>
-                          <div className="flex flex-col mb-1">
-                            <span className="text-[8px] font-bold opacity-30 uppercase tracking-[0.2em]">Einheiten</span>
+                        <div className="flex-1 flex flex-col justify-center items-center py-2 relative z-10">
+                          <div className="flex items-end gap-3">
+                            <span className={cn(
+                              "text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all duration-700",
+                              goalMet ? "text-emerald-500" : "text-slate-900"
+                            )}>{meal.count}</span>
+                            <div className="flex flex-col mb-1">
+                              <span className="text-[8px] font-bold opacity-30 uppercase tracking-[0.2em]">Einheiten</span>
+                            </div>
                           </div>
+                          
+                          {meal.daily_goal > 0 && (
+                            <div className="mt-6 flex flex-col items-center gap-2 w-full">
+                              <div className="flex items-center gap-2 opacity-60">
+                                <Target size={16} className="text-cyan-500" />
+                                <span className="text-base font-black uppercase tracking-widest">Ziel: {meal.daily_goal}</span>
+                                {goalMet && <CheckCircle2 size={16} className="text-emerald-500" />}
+                              </div>
+                              
+                              {!goalMet && (
+                                <div className="mt-4 p-4 bg-amber-500/10 rounded-2xl border border-amber-500/20 w-full flex flex-col items-center">
+                                  <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600 mb-1">Noch offen</span>
+                                  <span className="text-5xl font-black text-amber-600 tracking-tighter">
+                                    {meal.daily_goal - meal.count}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        
-                        {meal.daily_goal > 0 && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <Target size={12} className="opacity-30" />
-                            <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">Ziel: {meal.daily_goal}</span>
-                            {goalMet && <CheckCircle2 size={12} className="text-emerald-500" />}
-                          </div>
-                        )}
-                      </div>
 
                       <div className="pt-4 border-t border-current/5 flex items-center justify-between relative z-10">
                         <div className="flex -space-x-2">
