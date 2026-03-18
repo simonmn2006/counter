@@ -174,14 +174,18 @@ async function startServer() {
     }
 
     if (isMuted) {
+      console.warn(`Scan ignored: Proximity sensor is active (Muted). QR Code: ${qrCode}`);
       return { status: "ignored", reason: "proximity_active" };
     }
 
-    const meal = db.prepare("SELECT id FROM meals WHERE qr_code = ?").get(qrCode) as { id: number } | undefined;
+    const meal = db.prepare("SELECT id, name FROM meals WHERE qr_code = ?").get(qrCode) as { id: number, name: string } | undefined;
     
     if (!meal) {
+      console.error(`Scan error: Meal not found for QR Code: ${qrCode}`);
       return { status: "error", message: "Meal not found" };
     }
+
+    console.log(`Processing scan for meal: ${meal.name} (ID: ${meal.id})`);
 
     const today = format(new Date(), "yyyy-MM-dd");
     
@@ -681,62 +685,133 @@ async function startServer() {
   });
 
   // Serial Port Hardware Integration
-  const initHardware = async () => {
+  let scannerPort: SerialPort | null = null;
+  let espPort: SerialPort | null = null;
+
+  const checkHardwareStatus = async () => {
     try {
-      const ports = await SerialPort.list();
-      console.log("Available Serial Ports:", ports.map(p => `${p.path} (${p.vendorId}:${p.productId})`));
-
-      // 05f9:4204 -> Gryphon Scanner
+      let ports: any[] = [];
+      try {
+        ports = await SerialPort.list();
+      } catch (listErr: any) {
+        // Handle missing udevadm or other system-level errors gracefully
+        if (listErr.message?.includes('udevadm') || listErr.code === 'ENOENT') {
+          console.warn("Hardware Check Warning: 'udevadm' not found. This is expected in some containerized environments. Hardware detection will be limited.");
+          // Fallback: If we can't list, we assume current status or try to probe known paths if needed
+          // For now, we just return empty to stop the error spam
+          ports = [];
+        } else {
+          throw listErr;
+        }
+      }
+      
       const scannerPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "05f9" && p.productId?.toLowerCase() === "4204");
-      if (scannerPortInfo) {
-        console.log(`Initializing Gryphon Scanner on ${scannerPortInfo.path}...`);
-        const scannerPort = new SerialPort({ path: scannerPortInfo.path, baudRate: 9600 });
-        const parser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-        parser.on('data', (data: string) => {
-          const code = data.trim();
-          if (code) {
-            console.log(`Scanner Hardware Input: ${code}`);
-            processScan(code);
-          }
-        });
-        scannerPort.on('error', (err) => console.error("Scanner Port Error:", err));
-        hardwareStatus.scannerConnected = true;
-      } else {
-        console.warn("Gryphon Scanner (05f9:4204) not found on serial ports.");
-        hardwareStatus.scannerConnected = false;
-      }
-
-      // 10c4:ea60 -> ESP32 CP210x
       const espPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "10c4" && p.productId?.toLowerCase() === "ea60");
-      if (espPortInfo) {
-        console.log(`Initializing ESP32 Sensor on ${espPortInfo.path}...`);
-        const espPort = new SerialPort({ path: espPortInfo.path, baudRate: 115200 });
-        const parser = espPort.pipe(new ReadlineParser({ delimiter: '\n' }));
-        parser.on('data', (data: string) => {
-          const signal = data.trim().toLowerCase();
-          if (signal === "activated" || signal === "1" || signal === "on") {
-            console.log("ESP32 Signal: Activated");
-            processProximity("activated");
-          } else if (signal === "deactivated" || signal === "0" || signal === "off") {
-            console.log("ESP32 Signal: Deactivated");
-            processProximity("deactivated");
-          }
-        });
-        espPort.on('error', (err) => console.error("ESP32 Port Error:", err));
-        hardwareStatus.proximityConnected = true;
-      } else {
-        console.warn("ESP32 (10c4:ea60) not found on serial ports.");
-        hardwareStatus.proximityConnected = false;
+
+      const prevScannerStatus = hardwareStatus.scannerConnected;
+      const prevProximityStatus = hardwareStatus.proximityConnected;
+
+      hardwareStatus.scannerConnected = !!scannerPortInfo && (scannerPort?.isOpen || false);
+      hardwareStatus.proximityConnected = !!espPortInfo && (espPort?.isOpen || false);
+
+      // If proximity sensor is disconnected, ensure isMuted is reset
+      if (!hardwareStatus.proximityConnected && isMuted) {
+        isMuted = false;
+        io.emit("status", { isMuted: false });
+        console.log("Proximity sensor disconnected: Resetting mute status.");
       }
 
-      io.emit("hardware_status", hardwareStatus);
+      // If status changed, emit to clients
+      if (prevScannerStatus !== hardwareStatus.scannerConnected || prevProximityStatus !== hardwareStatus.proximityConnected) {
+        io.emit("hardware_status", hardwareStatus);
+      }
+
+      // Attempt reconnection if disconnected but port is found
+      if (scannerPortInfo && (!scannerPort || !scannerPort.isOpen)) {
+        initScanner(scannerPortInfo.path);
+      }
+      if (espPortInfo && (!espPort || !espPort.isOpen)) {
+        initESP32(espPortInfo.path);
+      }
     } catch (err) {
-      console.error("Hardware Initialization Error:", err);
+      console.error("Hardware Check Error:", err);
     }
   };
 
-  // Run hardware init after a short delay to ensure system is ready
-  setTimeout(initHardware, 5000);
+  const initScanner = (path: string) => {
+    if (scannerPort && scannerPort.isOpen) return;
+    
+    console.log(`Initializing Gryphon Scanner on ${path}...`);
+    scannerPort = new SerialPort({ path, baudRate: 9600 });
+    const parser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+    
+    parser.on('data', (data: string) => {
+      const code = data.trim();
+      if (code) {
+        console.log(`Scanner Hardware Input: ${code}`);
+        processScan(code);
+      }
+    });
+
+    scannerPort.on('open', () => {
+      hardwareStatus.scannerConnected = true;
+      io.emit("hardware_status", hardwareStatus);
+    });
+
+    scannerPort.on('close', () => {
+      hardwareStatus.scannerConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+      scannerPort = null;
+    });
+
+    scannerPort.on('error', (err) => {
+      console.error("Scanner Port Error:", err);
+      hardwareStatus.scannerConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+    });
+  };
+
+  const initESP32 = (path: string) => {
+    if (espPort && espPort.isOpen) return;
+
+    console.log(`Initializing ESP32 Sensor on ${path}...`);
+    espPort = new SerialPort({ path, baudRate: 115200 });
+    const parser = espPort.pipe(new ReadlineParser({ delimiter: '\n' }));
+    
+    parser.on('data', (data: string) => {
+      const signal = data.trim().toLowerCase();
+      if (signal === "activated" || signal === "1" || signal === "on") {
+        console.log("ESP32 Signal: Activated");
+        processProximity("activated");
+      } else if (signal === "deactivated" || signal === "0" || signal === "off") {
+        console.log("ESP32 Signal: Deactivated");
+        processProximity("deactivated");
+      }
+    });
+
+    espPort.on('open', () => {
+      hardwareStatus.proximityConnected = true;
+      io.emit("hardware_status", hardwareStatus);
+    });
+
+    espPort.on('close', () => {
+      hardwareStatus.proximityConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+      espPort = null;
+    });
+
+    espPort.on('error', (err) => {
+      console.error("ESP32 Port Error:", err);
+      hardwareStatus.proximityConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+    });
+  };
+
+  // Run hardware check periodically
+  setInterval(checkHardwareStatus, 5000);
+  
+  // Initial check
+  setTimeout(checkHardwareStatus, 2000);
 
   app.post("/api/maintenance", (req, res) => {
     const { active } = req.body;
