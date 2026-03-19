@@ -1,3 +1,4 @@
+console.log(">>> SERVER SCRIPT LOADED (LINE 1) <<<");
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -8,16 +9,25 @@ import { format, startOfDay, addDays } from "date-fns";
 
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
 import mysql from "mysql2/promise";
+import { SerialPort } from "serialport";
+import { ReadlineParser } from "@serialport/parser-readline";
+
+console.log(">>> SERVER SCRIPT LOADED <<<");
 
 async function startServer() {
+  console.log(">>> STARTING SERVER FUNCTION <<<");
   const app = express();
   const httpServer = createServer(app);
   const io = new Server(httpServer);
   const PORT = 3000;
 
+  console.log(">>> INITIALIZING DATABASE <<<");
   // Database Setup
   const db = new Database("tracker.db");
   db.pragma("journal_mode = WAL");
+
+  const allMeals = db.prepare("SELECT id, name, qr_code FROM meals WHERE is_deleted = 0").all();
+  console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS meals (
@@ -133,6 +143,102 @@ async function startServer() {
     return parseInt(setting?.value || "3000");
   };
 
+  const processProximity = (status: "activated" | "deactivated") => {
+    if (status === "activated") {
+      proximityActive = true;
+      if (activationTimer) clearTimeout(activationTimer);
+      
+      const delay = getCalibrationMs();
+      
+      // Start timer to mute after delay
+      activationTimer = setTimeout(() => {
+        if (proximityActive) {
+          isMuted = true;
+          io.emit("status", { isMuted: true });
+        }
+      }, delay);
+      
+      return { status: "pending", delay };
+    } else {
+      proximityActive = false;
+      if (activationTimer) clearTimeout(activationTimer);
+      
+      if (isMuted) {
+        isMuted = false;
+        io.emit("status", { isMuted: false });
+      }
+      
+      return { status: "idle" };
+    }
+  };
+
+  const processScan = (qrCode: string) => {
+    // Normalize QR Code: strip common prefixes and trim
+    let normalizedCode = qrCode.trim();
+    const prefixes = ["tel:", "mailto:", "http://", "https://", "smsto:", "msg:", "geo:"];
+    
+    for (const prefix of prefixes) {
+      if (normalizedCode.toLowerCase().startsWith(prefix)) {
+        normalizedCode = normalizedCode.substring(prefix.length);
+        break;
+      }
+    }
+
+    if (!isWithinOperationHours()) {
+      return { status: "ignored", reason: "outside_operation_hours" };
+    }
+
+    if (isMaintenanceActive()) {
+      return { status: "ignored", reason: "maintenance_active" };
+    }
+
+    if (isMuted) {
+      console.warn(`Scan ignored: Proximity sensor is active (Muted). QR Code: ${qrCode} (Normalized: ${normalizedCode})`);
+      return { status: "ignored", reason: "proximity_active" };
+    }
+
+    // Try exact match first, then normalized match
+    let meal = db.prepare("SELECT id, name FROM meals WHERE qr_code = ?").get(qrCode) as { id: number, name: string } | undefined;
+    
+    if (!meal && normalizedCode !== qrCode) {
+      console.log(`Exact match failed for ${qrCode}, trying normalized: ${normalizedCode}`);
+      meal = db.prepare("SELECT id, name FROM meals WHERE qr_code = ?").get(normalizedCode) as { id: number, name: string } | undefined;
+    }
+    
+    if (!meal) {
+      const activeMeals = db.prepare("SELECT name, qr_code FROM meals WHERE is_deleted = 0 LIMIT 10").all();
+      console.error(`Scan error: Meal not found for QR Code: ${qrCode} (Normalized: ${normalizedCode})`);
+      console.log(">>> CURRENT ACTIVE MEALS (First 10):", JSON.stringify(activeMeals, null, 2));
+      return { status: "error", message: "Meal not found" };
+    }
+
+    console.log(`Processing scan for meal: ${meal.name} (ID: ${meal.id})`);
+
+    const today = format(new Date(), "yyyy-MM-dd");
+    
+    let currentCount = 0;
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO counts (meal_id, date, count) 
+        VALUES (?, ?, 1)
+        ON CONFLICT(meal_id, date) DO UPDATE SET count = count + 1
+      `).run(meal.id, today);
+      
+      db.prepare("INSERT INTO logs (meal_id) VALUES (?)").run(meal.id);
+      
+      const row = db.prepare("SELECT count FROM counts WHERE meal_id = ? AND date = ?").get(meal.id, today) as { count: number };
+      currentCount = row.count;
+    })();
+
+    const mealInfo = db.prepare("SELECT name, qr_code FROM meals WHERE id = ?").get(meal.id) as { name: string, qr_code: string };
+    sendToInfluxDB(mealInfo.name, currentCount);
+    sendToMariaDB(mealInfo.name, currentCount, mealInfo.qr_code);
+
+    io.emit("update");
+    io.emit("scan", { qrCode, timestamp: new Date() });
+    return { status: "counted", mealId: meal.id };
+  };
+
   const isWithinOperationHours = () => {
     const settings = db.prepare("SELECT key, value FROM settings WHERE key IN ('op_start', 'op_end')").all() as { key: string, value: string }[];
     const opStart = settings.find(s => s.key === 'op_start')?.value || "00:00";
@@ -141,17 +247,24 @@ async function startServer() {
     const now = new Date();
     const currentTime = format(now, "HH:mm");
     
-    if (opStart <= opEnd) {
-      return currentTime >= opStart && currentTime <= opEnd;
-    } else {
-      // Over midnight case
-      return currentTime >= opStart || currentTime <= opEnd;
+    const result = opStart <= opEnd 
+      ? (currentTime >= opStart && currentTime <= opEnd)
+      : (currentTime >= opStart || currentTime <= opEnd);
+
+    if (!result) {
+      console.warn(`Operation hours check failed: Current time ${currentTime} is outside ${opStart}-${opEnd}`);
     }
+    
+    return result;
   };
 
   const isMaintenanceActive = () => {
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'maintenance_active'").get() as { value: string } | undefined;
-    return setting?.value === "1";
+    const active = setting?.value === "1";
+    if (active) {
+      console.warn("Maintenance mode is active. Scans will be ignored.");
+    }
+    return active;
   };
 
   const sendToInfluxDB = async (mealName: string, count: number) => {
@@ -529,6 +642,15 @@ async function startServer() {
 
   app.post("/api/settings", (req, res) => {
     const { key, value } = req.body;
+    
+    // Validation for calibration_ms
+    if (key === 'calibration_ms') {
+      const val = parseInt(value.toString());
+      if (isNaN(val) || val < 0) {
+        return res.status(400).json({ error: "Invalid calibration value. Must be a positive number." });
+      }
+    }
+
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value.toString());
     syncSettingsToMariaDB();
     res.json({ success: true });
@@ -583,81 +705,172 @@ async function startServer() {
   // Hardware Simulation / Integration Endpoints
   app.post("/api/trigger/proximity", (req, res) => {
     const { status } = req.body; // "activated" or "deactivated"
-    
-    if (status === "activated") {
-      proximityActive = true;
-      if (activationTimer) clearTimeout(activationTimer);
-      
-      const delay = getCalibrationMs();
-      
-      // Start timer to mute after delay
-      activationTimer = setTimeout(() => {
-        if (proximityActive) {
-          isMuted = true;
-          io.emit("status", { isMuted: true });
-        }
-      }, delay);
-      
-      return res.json({ status: "pending", delay });
-    } else {
-      // status === "deactivated" or anything else
-      proximityActive = false;
-      if (activationTimer) clearTimeout(activationTimer);
-      
-      if (isMuted) {
-        isMuted = false;
-        io.emit("status", { isMuted: false });
-      }
-      
-      return res.json({ status: "idle" });
-    }
+    const result = processProximity(status as "activated" | "deactivated");
+    res.json(result);
   });
 
   app.post("/api/trigger/scan", (req, res) => {
     const { qrCode } = req.body;
-    
-    if (!isWithinOperationHours()) {
-      return res.json({ status: "ignored", reason: "outside_operation_hours" });
+    const result = processScan(qrCode);
+    if (result.status === "error") {
+      return res.status(404).json(result);
     }
-
-    if (isMaintenanceActive()) {
-      return res.json({ status: "ignored", reason: "maintenance_active" });
-    }
-
-    if (isMuted) {
-      return res.json({ status: "ignored", reason: "proximity_active" });
-    }
-
-    const meal = db.prepare("SELECT id FROM meals WHERE qr_code = ?").get(qrCode) as { id: number } | undefined;
-    
-    if (!meal) {
-      return res.status(404).json({ status: "error", message: "Meal not found" });
-    }
-
-    const today = format(new Date(), "yyyy-MM-dd");
-    
-    let currentCount = 0;
-    db.transaction(() => {
-      db.prepare(`
-        INSERT INTO counts (meal_id, date, count) 
-        VALUES (?, ?, 1)
-        ON CONFLICT(meal_id, date) DO UPDATE SET count = count + 1
-      `).run(meal.id, today);
-      
-      db.prepare("INSERT INTO logs (meal_id) VALUES (?)").run(meal.id);
-      
-      const row = db.prepare("SELECT count FROM counts WHERE meal_id = ? AND date = ?").get(meal.id, today) as { count: number };
-      currentCount = row.count;
-    })();
-
-    const mealInfo = db.prepare("SELECT name, qr_code FROM meals WHERE id = ?").get(meal.id) as { name: string, qr_code: string };
-    sendToInfluxDB(mealInfo.name, currentCount);
-    sendToMariaDB(mealInfo.name, currentCount, mealInfo.qr_code);
-
-    io.emit("update");
-    io.emit("scan", { qrCode, timestamp: new Date() });
-    res.json({ status: "counted", mealId: meal.id });
+    res.json(result);
   });
+
+  // Serial Port Hardware Integration
+  let scannerPort: SerialPort | null = null;
+  let espPort: SerialPort | null = null;
+
+  const checkHardwareStatus = async () => {
+    try {
+      let ports: any[] = [];
+      try {
+        ports = await SerialPort.list();
+        if (ports.length > 0) {
+          console.log("Detected Serial Ports:", ports.map(p => `${p.path} (VID:${p.vendorId} PID:${p.productId})`).join(", "));
+        }
+      } catch (listErr: any) {
+        if (listErr.message?.includes('udevadm') || listErr.code === 'ENOENT') {
+          console.warn("Hardware Check Warning: 'udevadm' not found. This is expected in some containerized environments.");
+          ports = [];
+        } else {
+          throw listErr;
+        }
+      }
+      
+      const scannerPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "05f9" && p.productId?.toLowerCase() === "4204");
+      const espPortInfo = ports.find(p => p.vendorId?.toLowerCase() === "10c4" && p.productId?.toLowerCase() === "ea60");
+
+      const mealCount = db.prepare("SELECT COUNT(*) as count FROM meals WHERE is_deleted = 0").get() as { count: number };
+      if (mealCount.count === 0) {
+        console.warn("DIAGNOSTIC: No active meals found in database. Scans will not be matched.");
+      }
+
+      const prevScannerStatus = hardwareStatus.scannerConnected;
+      const prevProximityStatus = hardwareStatus.proximityConnected;
+
+      hardwareStatus.scannerConnected = !!scannerPortInfo && (scannerPort?.isOpen || false);
+      hardwareStatus.proximityConnected = !!espPortInfo && (espPort?.isOpen || false);
+
+      if (!hardwareStatus.scannerConnected && scannerPortInfo) {
+        console.warn(`Scanner port ${scannerPortInfo.path} found but not open. Attempting to open...`);
+      }
+
+      // If proximity sensor is disconnected, ensure isMuted is reset
+      if (!hardwareStatus.proximityConnected && isMuted) {
+        isMuted = false;
+        io.emit("status", { isMuted: false });
+        console.log("Proximity sensor disconnected: Resetting mute status.");
+      }
+
+      // If status changed, emit to clients
+      if (prevScannerStatus !== hardwareStatus.scannerConnected || prevProximityStatus !== hardwareStatus.proximityConnected) {
+        io.emit("hardware_status", hardwareStatus);
+      }
+
+      // Attempt reconnection if disconnected but port is found
+      if (scannerPortInfo && (!scannerPort || !scannerPort.isOpen)) {
+        initScanner(scannerPortInfo.path);
+      }
+      if (espPortInfo && (!espPort || !espPort.isOpen)) {
+        initESP32(espPortInfo.path);
+      }
+    } catch (err) {
+      console.error("Hardware Check Error:", err);
+    }
+  };
+
+  const initScanner = (path: string) => {
+    if (scannerPort && scannerPort.isOpen) return;
+    
+    console.log(`Initializing Gryphon Scanner on ${path}...`);
+    scannerPort = new SerialPort({ path, baudRate: 9600 });
+    
+    // Using a more flexible approach to data: listen for any data and buffer it
+    let buffer = "";
+    scannerPort.on('data', (data: Buffer) => {
+      const str = data.toString();
+      console.log(`Raw Scanner Data Received: "${str.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}"`);
+      buffer += str;
+      
+      // Process if we see any line ending (\r, \n, or \r\n)
+      if (buffer.includes("\r") || buffer.includes("\n")) {
+        const codes = buffer.split(/[\r\n]+/);
+        // The last element might be an incomplete code if the buffer doesn't end with a delimiter
+        buffer = buffer.endsWith("\r") || buffer.endsWith("\n") ? "" : codes.pop() || "";
+        
+        for (const code of codes) {
+          const trimmed = code.trim();
+          if (trimmed) {
+            console.log(`Scanner Hardware Input (Parsed): ${trimmed}`);
+            processScan(trimmed);
+          }
+        }
+      }
+    });
+
+    scannerPort.on('open', () => {
+      console.log(`Scanner port ${path} is now OPEN.`);
+      hardwareStatus.scannerConnected = true;
+      io.emit("hardware_status", hardwareStatus);
+    });
+
+    scannerPort.on('close', () => {
+      console.warn(`Scanner port ${path} CLOSED.`);
+      hardwareStatus.scannerConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+      scannerPort = null;
+    });
+
+    scannerPort.on('error', (err) => {
+      console.error(`Scanner Port Error on ${path}:`, err);
+      hardwareStatus.scannerConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+    });
+  };
+
+  const initESP32 = (path: string) => {
+    if (espPort && espPort.isOpen) return;
+
+    console.log(`Initializing ESP32 Sensor on ${path}...`);
+    espPort = new SerialPort({ path, baudRate: 115200 });
+    const parser = espPort.pipe(new ReadlineParser({ delimiter: '\n' }));
+    
+    parser.on('data', (data: string) => {
+      const signal = data.trim().toLowerCase();
+      if (signal === "activated" || signal === "1" || signal === "on") {
+        console.log("ESP32 Signal: Activated");
+        processProximity("activated");
+      } else if (signal === "deactivated" || signal === "0" || signal === "off") {
+        console.log("ESP32 Signal: Deactivated");
+        processProximity("deactivated");
+      }
+    });
+
+    espPort.on('open', () => {
+      hardwareStatus.proximityConnected = true;
+      io.emit("hardware_status", hardwareStatus);
+    });
+
+    espPort.on('close', () => {
+      hardwareStatus.proximityConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+      espPort = null;
+    });
+
+    espPort.on('error', (err) => {
+      console.error("ESP32 Port Error:", err);
+      hardwareStatus.proximityConnected = false;
+      io.emit("hardware_status", hardwareStatus);
+    });
+  };
+
+  // Run hardware check periodically
+  setInterval(checkHardwareStatus, 5000);
+  
+  // Initial check
+  setTimeout(checkHardwareStatus, 2000);
 
   app.post("/api/maintenance", (req, res) => {
     const { active } = req.body;
@@ -768,4 +981,8 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error(">>> CRITICAL STARTUP ERROR <<<");
+  console.error(err);
+  process.exit(1);
+});
