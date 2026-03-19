@@ -339,6 +339,31 @@ export default function App() {
     searchQuery: ""
   });
 
+  const clearFilters = () => {
+    setReportFilters({
+      startDate: format(new Date(new Date().setDate(new Date().getDate() - 7)), "yyyy-MM-dd"),
+      endDate: format(new Date(), "yyyy-MM-dd"),
+      startTime: "00:00",
+      endTime: "23:59",
+      searchQuery: ""
+    });
+  };
+
+  const handleExportCSV = () => {
+    const headers = ["Datum", "Asset Name", "Einheiten"];
+    const rows = reports.map(r => [r.date, r.meal_name, r.count.toString()]);
+    const csvContent = [headers, ...rows].map(e => e.join(";")).join("\n"); // Using ; for Excel compatibility in some regions
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Produktionsbericht_${reportFilters.startDate}_bis_${reportFilters.endDate}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const currentTheme = THEMES[themeKey];
 
   // Aggregate reports for the chart (total per date)
@@ -1205,14 +1230,29 @@ export default function App() {
                       </div>
 
                       <div className="flex-1 flex flex-col justify-center items-center py-2 relative z-10">
-                        <div className="flex items-end gap-3">
-                          <span className={cn(
-                            "text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all duration-700",
-                            goalMet ? "text-emerald-500" : "text-slate-900"
-                          )}>{meal.daily_goal > 0 && meal.count >= meal.daily_goal ? `+${meal.count - meal.daily_goal}` : meal.count}</span>
-                          <div className="flex flex-col mb-1">
-                            <span className="text-[8px] font-bold opacity-30 uppercase tracking-[0.2em]">Einheiten</span>
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex items-end gap-3">
+                            <span className={cn(
+                              "text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all duration-700",
+                              goalMet ? "text-emerald-500" : "text-slate-900"
+                            )}>{meal.count}</span>
+                            <div className="flex flex-col mb-1">
+                              <span className="text-[10px] font-bold opacity-30 uppercase tracking-[0.2em]">Total</span>
+                            </div>
                           </div>
+                          
+                          {goalMet && meal.count > meal.daily_goal && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="mt-1 flex items-center gap-1.5 bg-emerald-500/10 px-4 py-1.5 rounded-2xl border border-emerald-500/20"
+                            >
+                              <Plus size={14} className="text-emerald-500 stroke-[3px]" />
+                              <span className="text-lg font-black text-emerald-500 tabular-nums">
+                                {meal.count - meal.daily_goal} <span className="text-[10px] uppercase opacity-60 ml-0.5">Extra</span>
+                              </span>
+                            </motion.div>
+                          )}
                         </div>
                         
                         {meal.daily_goal > 0 && (
@@ -2197,56 +2237,128 @@ export default function App() {
                   )}>Standardmäßig werden die letzten 7 Tage angezeigt. Wählen Sie Daten für einen größeren Zeitraum.</p>
                 </div>
                 
-                <div className="flex flex-wrap items-end gap-4 print:hidden">
-                  <div className="flex gap-4">
-                    <CustomDatePicker 
-                      label="Startdatum"
-                      value={reportFilters.startDate}
-                      onChange={val => setReportFilters(prev => ({ ...prev, startDate: val }))}
-                      theme={currentTheme}
-                    />
-                    <CustomTimePicker
-                      label="Startzeit"
-                      value={reportFilters.startTime}
-                      onChange={val => setReportFilters(prev => ({ ...prev, startTime: val }))}
-                      theme={currentTheme}
-                    />
+                <div className="flex flex-wrap items-end gap-6 print:hidden">
+                  <div className="flex flex-wrap gap-4 items-end">
+                    <div className="flex gap-2">
+                      <CustomDatePicker 
+                        label="Von"
+                        value={reportFilters.startDate}
+                        onChange={val => setReportFilters(prev => ({ ...prev, startDate: val }))}
+                        theme={currentTheme}
+                      />
+                      <CustomTimePicker
+                        label="Zeit"
+                        value={reportFilters.startTime}
+                        onChange={val => setReportFilters(prev => ({ ...prev, startTime: val }))}
+                        theme={currentTheme}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <CustomDatePicker 
+                        label="Bis"
+                        value={reportFilters.endDate}
+                        onChange={val => setReportFilters(prev => ({ ...prev, endDate: val }))}
+                        theme={currentTheme}
+                      />
+                      <CustomTimePicker
+                        label="Zeit"
+                        value={reportFilters.endTime}
+                        onChange={val => setReportFilters(prev => ({ ...prev, endTime: val }))}
+                        theme={currentTheme}
+                      />
+                    </div>
                   </div>
-                  <div className="flex gap-4">
-                    <CustomDatePicker 
-                      label="Enddatum"
-                      value={reportFilters.endDate}
-                      onChange={val => setReportFilters(prev => ({ ...prev, endDate: val }))}
-                      theme={currentTheme}
-                    />
-                    <CustomTimePicker
-                      label="Endzeit"
-                      value={reportFilters.endTime}
-                      onChange={val => setReportFilters(prev => ({ ...prev, endTime: val }))}
-                      theme={currentTheme}
-                    />
+
+                  <div className="h-12 w-[1px] bg-slate-200 hidden lg:block" />
+
+                  <div className="flex flex-wrap gap-4 items-end">
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">Asset wählen</label>
+                      <select 
+                        value={reportFilters.searchQuery}
+                        onChange={e => setReportFilters(prev => ({ ...prev, searchQuery: e.target.value }))}
+                        className={cn("p-3 border text-xs outline-none transition-all w-44 cursor-pointer", currentTheme.rounded, currentTheme.input)}
+                      >
+                        <option value="">Alle Assets</option>
+                        {meals.map(m => (
+                          <option key={m.id} value={m.name}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">Manuelle Suche</label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-20" size={14} />
+                        <input 
+                          type="text"
+                          placeholder="Suche..."
+                          value={reportFilters.searchQuery}
+                          onChange={e => setReportFilters(prev => ({ ...prev, searchQuery: e.target.value }))}
+                          className={cn("p-3 pl-9 border text-xs outline-none transition-all w-44", currentTheme.rounded, currentTheme.input)}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[9px] font-bold uppercase tracking-widest opacity-40 ml-1">Asset suchen</label>
-                    <input 
-                      type="text"
-                      placeholder="Nach Name suchen..."
-                      value={reportFilters.searchQuery}
-                      onChange={e => setReportFilters(prev => ({ ...prev, searchQuery: e.target.value }))}
-                      className={cn("p-3 border text-xs outline-none transition-all w-48", currentTheme.rounded, currentTheme.input)}
-                    />
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={clearFilters}
+                      className={cn(
+                        "p-3 border transition-all hover:bg-black/5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest",
+                        currentTheme.rounded,
+                        currentTheme.input
+                      )}
+                      title="Filter zurücksetzen"
+                    >
+                      <RefreshCcw size={16} />
+                    </button>
+                    <button 
+                      onClick={handleExportCSV}
+                      className={cn(
+                        "p-3 border transition-all hover:bg-emerald-500 hover:text-white flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest",
+                        currentTheme.rounded,
+                        currentTheme.input
+                      )}
+                    >
+                      <Database size={16} />
+                      CSV Export
+                    </button>
+                    <button 
+                      onClick={handlePrint}
+                      className={cn(
+                        "p-3 border transition-all hover:bg-indigo-500 hover:text-white flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest",
+                        currentTheme.rounded,
+                        currentTheme.input
+                      )}
+                    >
+                      <Printer size={16} />
+                      Drucken
+                    </button>
                   </div>
-                  <button 
-                    onClick={handlePrint}
-                    className={cn(
-                      "p-3 border transition-all hover:bg-black/5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest",
-                      currentTheme.rounded,
-                      currentTheme.input
-                    )}
-                  >
-                    <Printer size={16} />
-                    Drucken
-                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 print:grid-cols-4">
+                <div className={cn("p-8 border shadow-sm", currentTheme.rounded, currentTheme.card)}>
+                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-40 mb-2">Gesamteinheiten</p>
+                  <p className="text-4xl font-black tracking-tighter">{filteredTotal.toLocaleString()}</p>
+                  <p className="text-[8px] opacity-40 mt-1 uppercase tracking-widest">Gewählter Zeitraum</p>
+                </div>
+                <div className={cn("p-8 border shadow-sm", currentTheme.rounded, currentTheme.card)}>
+                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-40 mb-2">Top Asset</p>
+                  <p className="text-2xl font-black tracking-tight truncate">{reports.length > 0 ? reports.reduce((a, b) => a.count > b.count ? a : b).meal_name : '-'}</p>
+                  <p className="text-[8px] opacity-40 mt-1 uppercase tracking-widest">Höchster Durchsatz</p>
+                </div>
+                <div className={cn("p-8 border shadow-sm", currentTheme.rounded, currentTheme.card)}>
+                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-40 mb-2">Bester Tag</p>
+                  <p className="text-2xl font-black tracking-tight">{chartData.length > 0 ? format(parseISO((chartData.reduce((a: any, b: any) => a.total_meals > b.total_meals ? a : b) as any).date), "dd. MMMM", { locale: de }) : '-'}</p>
+                  <p className="text-[8px] opacity-40 mt-1 uppercase tracking-widest">Produktionsspitze</p>
+                </div>
+                <div className={cn("p-8 border shadow-sm", currentTheme.rounded, currentTheme.card)}>
+                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-40 mb-2">Schnitt / Std</p>
+                  <p className="text-4xl font-black tracking-tighter">{hourlyData.length > 0 ? (hourlyData.reduce((acc, curr) => acc + curr.count, 0) / hourlyData.length).toFixed(1) : '0.0'}</p>
+                  <p className="text-[8px] opacity-40 mt-1 uppercase tracking-widest">Aktive Betriebsstunden</p>
                 </div>
               </div>
 
