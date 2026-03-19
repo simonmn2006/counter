@@ -1,3 +1,6 @@
+if (typeof (window as any).process === 'undefined') {
+  (window as any).process = { env: {} };
+}
 import React, { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import { motion, AnimatePresence } from "motion/react";
@@ -293,7 +296,6 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isIdle, setIsIdle] = useState(true);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isFlashing, setIsFlashing] = useState(false);
   const [efficiency, setEfficiency] = useState({ ppm: "0.00", totalRecent: 0 });
   const [maintenanceStatus, setMaintenanceStatus] = useState<{ active: boolean }>({
     active: false
@@ -512,10 +514,6 @@ export default function App() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ qrCode: scanBuffer })
           }).catch(err => console.error("Global scan failed", err));
-          
-          // Visual feedback
-          setIsFlashing(true);
-          setTimeout(() => setIsFlashing(false), 300);
         }
         scanBuffer = "";
       } else if (e.key.length === 1) {
@@ -542,10 +540,6 @@ export default function App() {
     socket.on("hardware_status", (data) => setHardwareStatus(data));
     socket.on("maintenance_status", (data) => setMaintenanceStatus(data));
     socket.on("scan", (data) => {
-      // Visual feedback for scan
-      setIsFlashing(true);
-      setTimeout(() => setIsFlashing(false), 300);
-      
       const indicator = document.getElementById('scan-indicator');
       if (indicator) {
         indicator.style.backgroundColor = '#10b981'; // Green
@@ -878,18 +872,6 @@ export default function App() {
       isIdle && view === "counting" && "cursor-none",
       isPrinting && "bg-white text-black"
     )}>
-      {/* Scan Flash Overlay */}
-      <AnimatePresence>
-        {isFlashing && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.15 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-emerald-500 pointer-events-none"
-          />
-        )}
-      </AnimatePresence>
-
       {/* Hardware Alert Overlay */}
       <AnimatePresence>
         {hardwareAlert.show && (
@@ -1206,7 +1188,7 @@ export default function App() {
                           <span className={cn(
                             "text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all duration-700",
                             goalMet ? "text-emerald-500" : "text-slate-900"
-                          )}>{meal.count}</span>
+                          )}>{meal.daily_goal > 0 && meal.count >= meal.daily_goal ? `+${meal.count - meal.daily_goal}` : meal.count}</span>
                           <div className="flex flex-col mb-1">
                             <span className="text-[8px] font-bold opacity-30 uppercase tracking-[0.2em]">Einheiten</span>
                           </div>
@@ -1946,7 +1928,7 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Server URL {process.env.INFLUX_URL ? "(Set via Env)" : ""}</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Server URL {(typeof process !== 'undefined' && process.env.INFLUX_URL) ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
@@ -1957,7 +1939,7 @@ export default function App() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Organisation {process.env.INFLUX_ORG ? "(Set via Env)" : ""}</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Organisation {(typeof process !== 'undefined' && process.env.INFLUX_ORG) ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
@@ -1968,7 +1950,7 @@ export default function App() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Bucket Name {process.env.INFLUX_BUCKET ? "(Set via Env)" : ""}</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Bucket Name {(typeof process !== 'undefined' && process.env.INFLUX_BUCKET) ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
@@ -1982,7 +1964,7 @@ export default function App() {
 
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">API Token {process.env.INFLUX_TOKEN ? "(Set via Env)" : ""}</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">API Token {(typeof process !== 'undefined' && process.env.INFLUX_TOKEN) ? "(Set via Env)" : ""}</label>
                           <input
                             type="password"
                             className={cn("w-full p-4 border outline-none transition-all font-mono", currentTheme.rounded, currentTheme.input)}
@@ -2073,7 +2055,7 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Host {process.env.MARIADB_HOST ? "(Set via Env)" : ""}</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Host {(typeof process !== 'undefined' && process.env.MARIADB_HOST) ? "(Set via Env)" : ""}</label>
                           <input
                             type="text"
                             className={cn("w-full p-4 border outline-none transition-all", currentTheme.rounded, currentTheme.input)}
@@ -2122,7 +2104,7 @@ export default function App() {
 
                       <div className="space-y-6">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Password {process.env.MARIADB_PASSWORD ? "(Set via Env)" : ""}</label>
+                          <label className="text-[10px] font-bold uppercase tracking-widest opacity-40">Password {(typeof process !== 'undefined' && process.env.MARIADB_PASSWORD) ? "(Set via Env)" : ""}</label>
                           <input
                             type="password"
                             className={cn("w-full p-4 border outline-none transition-all font-mono", currentTheme.rounded, currentTheme.input)}
