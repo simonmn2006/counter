@@ -90,9 +90,6 @@ async function startServer() {
     );
   `);
 
-  const allMeals = db.prepare("SELECT id, name, qr_code, sort_order FROM meals WHERE is_deleted = 0 ORDER BY sort_order ASC, name ASC").all();
-  console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
-
   // Migration: Ensure daily_goal column exists in meals table
   try {
     db.prepare("ALTER TABLE meals ADD COLUMN daily_goal INTEGER DEFAULT 0").run();
@@ -120,10 +117,12 @@ async function startServer() {
     db.prepare("ALTER TABLE meals ADD COLUMN is_deleted INTEGER DEFAULT 0").run();
   } catch (e) {}
 
-  // Migration: Ensure sort_order column exists in meals table
   try {
     db.prepare("ALTER TABLE meals ADD COLUMN sort_order INTEGER DEFAULT 0").run();
   } catch (e) {}
+
+  const allMeals = db.prepare("SELECT id, name, qr_code, sort_order FROM meals WHERE is_deleted = 0 ORDER BY sort_order ASC, name ASC").all();
+  console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
 
   app.use(express.json());
 
