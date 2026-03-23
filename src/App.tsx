@@ -1225,7 +1225,7 @@ export default function App() {
                       
                       <div className="flex justify-center items-start relative z-10">
                         <h3 className={cn(
-                          "text-xl lg:text-2xl font-bold tracking-tight transition-all duration-700 group-hover:translate-x-1 line-clamp-1 text-center",
+                          "text-6xl lg:text-8xl font-black tracking-tighter transition-all duration-700 group-hover:translate-x-1 line-clamp-1 text-center",
                           currentTheme.text
                         )}>{meal.name}</h3>
                       </div>
