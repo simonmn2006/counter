@@ -1230,12 +1230,12 @@ export default function App() {
                         )}>{meal.name}</h3>
                       </div>
 
-                      <div className="flex-1 flex flex-col justify-center items-center py-2 relative z-10">
+                      <div className="flex-1 flex flex-col justify-center items-center py-0 relative z-10">
                         <div className="flex flex-col items-center gap-1">
                           <div className="flex items-end gap-3">
                             <span className={cn(
-                              "text-6xl lg:text-7xl font-black tracking-tighter leading-none transition-all duration-700",
-                              goalMet ? "text-emerald-500" : "text-slate-900"
+                              "text-8xl lg:text-[10rem] font-black tracking-tighter leading-none transition-all duration-700",
+                              goalMet ? "text-emerald-500" : "text-black/80"
                             )}>{meal.count}</span>
                             <div className="flex flex-col mb-1">
                               <span className="text-[10px] font-bold opacity-30 uppercase tracking-[0.2em]">Total</span>
@@ -1262,30 +1262,12 @@ export default function App() {
                               <Target size={16} className="text-cyan-500" />
                               <div className="flex items-center gap-1 group/goal">
                                 <span className="text-base font-black uppercase tracking-widest mr-1">Ziel:</span>
-                                <input 
-                                  type="number"
-                                  defaultValue={meal.daily_goal}
-                                  onBlur={async (e) => {
-                                    const newGoal = parseInt(e.target.value);
-                                    if (!isNaN(newGoal) && newGoal !== meal.daily_goal) {
-                                      await fetch(`/api/meals/${meal.id}`, {
-                                        method: "PUT",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          name: meal.name,
-                                          qrCode: meal.qr_code,
-                                          dailyGoal: newGoal,
-                                          sortOrder: meal.sort_order
-                                        }),
-                                      });
-                                      fetchData();
-                                    }
-                                  }}
-                                  className={cn(
-                                    "w-16 bg-transparent border-b border-black/10 text-base font-black text-center focus:border-cyan-500 outline-none transition-all",
-                                    goalMet && "text-emerald-600 border-emerald-500/20"
-                                  )}
-                                />
+                                <span className={cn(
+                                  "text-2xl font-black text-center transition-all",
+                                  goalMet ? "text-emerald-600" : "text-black/60"
+                                )}>
+                                  {meal.daily_goal}
+                                </span>
                               </div>
                               {goalMet && <CheckCircle2 size={16} className="text-emerald-500" />}
                             </div>
@@ -1329,7 +1311,7 @@ export default function App() {
                         </div>
                         <div className="flex flex-col items-end">
                           <span className={cn(
-                            "text-[8px] font-bold uppercase tracking-[0.2em]",
+                            "text-base font-black uppercase tracking-[0.2em]",
                             "text-cyan-600"
                           )}>
                             {meal.last_scan_time ? new Date(meal.last_scan_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Kein Scan"}
@@ -1345,7 +1327,7 @@ export default function App() {
               {/* Marquee Footer */}
               <div className="shrink-0 space-y-4">
                 <div className={cn(
-                  "h-12 overflow-hidden flex items-center relative border-y border-current/5",
+                  "h-24 overflow-hidden flex items-center relative border-y border-current/10",
                   "bg-black/5"
                 )}>
                   <div className={cn(
@@ -1369,14 +1351,14 @@ export default function App() {
                       .map((msg, i) => (
                         <span 
                           key={i} 
-                          className="mx-12 text-sm font-bold uppercase tracking-[0.2em]"
+                          className="mx-12 text-5xl font-black uppercase tracking-[0.2em]"
                           style={{ color: msg.color || 'inherit' }}
                         >
                           {msg.text}
                         </span>
                       ))}
                     {marqueeMessages.length === 0 && (
-                      <span className="mx-12 text-sm font-bold uppercase tracking-[0.2em] opacity-30">
+                      <span className="mx-12 text-5xl font-black uppercase tracking-[0.2em] opacity-30">
                         System Betriebsbereit • Qualitätskontrolle Aktiv • Sicherheit Zuerst
                       </span>
                     )}
@@ -1596,9 +1578,29 @@ export default function App() {
                                 "text-[10px] opacity-40 uppercase tracking-[0.2em]",
                                 "font-mono"
                               )}>{meal.qr_code}</p>
-                              {meal.daily_goal > 0 && (
-                                <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-full">Ziel: {meal.daily_goal}</span>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold uppercase tracking-widest opacity-40">Tagesziel:</span>
+                                <input 
+                                  type="number"
+                                  className="w-16 bg-transparent border-b border-black/10 text-xs font-bold text-center focus:border-cyan-500 outline-none transition-all"
+                                  defaultValue={meal.daily_goal}
+                                  onBlur={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    if (!isNaN(val) && val !== meal.daily_goal) {
+                                      fetch(`/api/meals/${meal.id}`, {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          name: meal.name,
+                                          qrCode: meal.qr_code,
+                                          dailyGoal: val,
+                                          sortOrder: meal.sort_order
+                                        })
+                                      });
+                                    }
+                                  }}
+                                />
+                              </div>
                               <span className="text-[9px] font-bold text-cyan-600 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded-full">Position: {meal.sort_order}</span>
                             </div>
                           </div>
