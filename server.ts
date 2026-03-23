@@ -26,9 +26,6 @@ async function startServer() {
   const db = new Database("tracker.db");
   db.pragma("journal_mode = WAL");
 
-  const allMeals = db.prepare("SELECT id, name, qr_code FROM meals WHERE is_deleted = 0").all();
-  console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
-
   db.exec(`
     CREATE TABLE IF NOT EXISTS meals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,6 +88,9 @@ async function startServer() {
       FOREIGN KEY(meal_id) REFERENCES meals(id)
     );
   `);
+
+  const allMeals = db.prepare("SELECT id, name, qr_code FROM meals WHERE is_deleted = 0").all();
+  console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
 
   // Migration: Ensure daily_goal column exists in meals table
   try {
