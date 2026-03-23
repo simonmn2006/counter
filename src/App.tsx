@@ -268,7 +268,7 @@ export default function App() {
     calibration_ms: "3000"
   });
   const [isMuted, setIsMuted] = useState(false);
-  const [newMeal, setNewMeal] = useState({ name: "", qrCode: "", dailyGoal: 0 });
+  const [newMeal, setNewMeal] = useState({ name: "", qrCode: "", dailyGoal: 0, sortOrder: 0 });
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [newMarquee, setNewMarquee] = useState<{
     text: string;
@@ -625,7 +625,7 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create meal");
-      setNewMeal({ name: "", qrCode: "", dailyGoal: 0 });
+      setNewMeal({ name: "", qrCode: "", dailyGoal: 0, sortOrder: 0 });
       fetchData();
     } catch (err: any) {
       setError(err.message);
@@ -644,7 +644,8 @@ export default function App() {
         body: JSON.stringify({
           name: editingMeal.name,
           qrCode: editingMeal.qr_code,
-          dailyGoal: editingMeal.daily_goal
+          dailyGoal: editingMeal.daily_goal,
+          sortOrder: editingMeal.sort_order
         }),
       });
       const data = await res.json();
@@ -1021,7 +1022,7 @@ export default function App() {
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
             className={cn("fixed top-0 left-0 right-0 z-50 border-b px-8 py-6 backdrop-blur-md", currentTheme.header)}
           >
-            <div className="max-w-[1600px] mx-auto flex items-center justify-between">
+            <div className="w-full px-4 flex items-center justify-between">
               <div className={cn("flex items-center gap-6 transition-all duration-700", view === "counting" && "opacity-0 pointer-events-none")}>
                 <div className={cn(
                   "w-12 h-12 flex items-center justify-center transition-all duration-700",
@@ -1117,7 +1118,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className={cn(
-        "flex-1 max-w-[1600px] w-full mx-auto p-8 overflow-hidden flex flex-col transition-all duration-700",
+        "flex-1 w-full p-8 overflow-hidden flex flex-col transition-all duration-700",
         !isIdle || view !== "counting" ? "pt-32" : "pt-8"
       )}>
         <AnimatePresence mode="wait">
@@ -1203,10 +1204,10 @@ export default function App() {
 
               <div className="flex-1 min-h-0">
                 <div className={cn(
-                  "grid gap-4 h-full",
+                  "grid gap-6 h-full",
                   meals.length <= 4 ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-4 grid-rows-1" : 
-                  meals.length <= 8 ? "grid-cols-2 lg:grid-cols-4 grid-rows-2" :
-                  "grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 grid-rows-auto"
+                  meals.length <= 8 ? "grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 grid-rows-2" :
+                  "grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 grid-rows-auto"
                 )}>
                 {meals.map((meal, idx) => {
                   const goalMet = meal.daily_goal > 0 && meal.count >= meal.daily_goal;
@@ -1259,15 +1260,49 @@ export default function App() {
                           <div className="mt-6 flex flex-col items-center gap-2 w-full">
                             <div className="flex items-center gap-2 opacity-60">
                               <Target size={16} className="text-cyan-500" />
-                              <span className="text-base font-black uppercase tracking-widest">Ziel: {meal.daily_goal}</span>
+                              <div className="flex items-center gap-1 group/goal">
+                                <span className="text-base font-black uppercase tracking-widest mr-1">Ziel:</span>
+                                <input 
+                                  type="number"
+                                  defaultValue={meal.daily_goal}
+                                  onBlur={async (e) => {
+                                    const newGoal = parseInt(e.target.value);
+                                    if (!isNaN(newGoal) && newGoal !== meal.daily_goal) {
+                                      await fetch(`/api/meals/${meal.id}`, {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          name: meal.name,
+                                          qrCode: meal.qr_code,
+                                          dailyGoal: newGoal,
+                                          sortOrder: meal.sort_order
+                                        }),
+                                      });
+                                      fetchData();
+                                    }
+                                  }}
+                                  className={cn(
+                                    "w-16 bg-transparent border-b border-black/10 text-base font-black text-center focus:border-cyan-500 outline-none transition-all",
+                                    goalMet && "text-emerald-600 border-emerald-500/20"
+                                  )}
+                                />
+                              </div>
                               {goalMet && <CheckCircle2 size={16} className="text-emerald-500" />}
                             </div>
                             
-                            {!goalMet && (
+                            {!goalMet && meal.daily_goal > 0 && (
                               <div className="mt-4 p-4 bg-amber-500/10 rounded-2xl border border-amber-500/20 w-full flex flex-col items-center">
                                 <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600 mb-1">Noch offen</span>
                                 <span className="text-5xl font-black text-amber-600 tracking-tighter">
                                   {meal.daily_goal - meal.count}
+                                </span>
+                              </div>
+                            )}
+                            {meal.count > meal.daily_goal && meal.daily_goal > 0 && (
+                              <div className="mt-4 p-4 bg-emerald-500/10 rounded-2xl border border-emerald-500/20 w-full flex flex-col items-center">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-600 mb-1">Extras</span>
+                                <span className="text-5xl font-black text-emerald-600 tracking-tighter">
+                                  +{meal.count - meal.daily_goal}
                                 </span>
                               </div>
                             )}
@@ -1484,18 +1519,33 @@ export default function App() {
                             placeholder="ASSET_001"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <label className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-40 ml-1">Tagesziel</label>
-                          <input 
-                            type="number"
-                            value={editingMeal ? editingMeal.daily_goal : newMeal.dailyGoal}
-                            onChange={e => editingMeal ? setEditingMeal({...editingMeal, daily_goal: parseInt(e.target.value) || 0}) : setNewMeal({...newMeal, dailyGoal: parseInt(e.target.value) || 0})}
-                            className={cn(
-                              "w-full bg-current/5 border border-current/10 p-4 outline-none transition-all",
-                              "rounded-xl focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
-                            )}
-                            placeholder="0 (Unbegrenzt)"
-                          />
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-40 ml-1">Tagesziel</label>
+                            <input 
+                              type="number"
+                              value={editingMeal ? editingMeal.daily_goal : newMeal.dailyGoal}
+                              onChange={e => editingMeal ? setEditingMeal({...editingMeal, daily_goal: parseInt(e.target.value) || 0}) : setNewMeal({...newMeal, dailyGoal: parseInt(e.target.value) || 0})}
+                              className={cn(
+                                "w-full bg-current/5 border border-current/10 p-4 outline-none transition-all",
+                                "rounded-xl focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+                              )}
+                              placeholder="Ziel"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-bold uppercase tracking-[0.2em] opacity-40 ml-1">Sortierung</label>
+                            <input 
+                              type="number"
+                              value={editingMeal ? editingMeal.sort_order : newMeal.sortOrder}
+                              onChange={e => editingMeal ? setEditingMeal({...editingMeal, sort_order: parseInt(e.target.value) || 0}) : setNewMeal({...newMeal, sortOrder: parseInt(e.target.value) || 0})}
+                              className={cn(
+                                "w-full bg-current/5 border border-current/10 p-4 outline-none transition-all",
+                                "rounded-xl focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500"
+                              )}
+                              placeholder="Position"
+                            />
+                          </div>
                         </div>
                         <div className="flex gap-2">
                           <button type="submit" className={cn(
@@ -1547,8 +1597,9 @@ export default function App() {
                                 "font-mono"
                               )}>{meal.qr_code}</p>
                               {meal.daily_goal > 0 && (
-                                <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">Ziel: {meal.daily_goal}</span>
+                                <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-full">Ziel: {meal.daily_goal}</span>
                               )}
+                              <span className="text-[9px] font-bold text-cyan-600 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded-full">Position: {meal.sort_order}</span>
                             </div>
                           </div>
                         </div>

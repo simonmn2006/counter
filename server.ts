@@ -32,6 +32,7 @@ async function startServer() {
       name TEXT UNIQUE NOT NULL,
       qr_code TEXT UNIQUE NOT NULL,
       daily_goal INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
       is_deleted INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -89,7 +90,7 @@ async function startServer() {
     );
   `);
 
-  const allMeals = db.prepare("SELECT id, name, qr_code FROM meals WHERE is_deleted = 0").all();
+  const allMeals = db.prepare("SELECT id, name, qr_code, sort_order FROM meals WHERE is_deleted = 0 ORDER BY sort_order ASC, name ASC").all();
   console.log(">>> CURRENT ACTIVE MEALS IN DB:", JSON.stringify(allMeals, null, 2));
 
   // Migration: Ensure daily_goal column exists in meals table
@@ -117,6 +118,11 @@ async function startServer() {
   // Migration: Ensure is_deleted column exists in meals table
   try {
     db.prepare("ALTER TABLE meals ADD COLUMN is_deleted INTEGER DEFAULT 0").run();
+  } catch (e) {}
+
+  // Migration: Ensure sort_order column exists in meals table
+  try {
+    db.prepare("ALTER TABLE meals ADD COLUMN sort_order INTEGER DEFAULT 0").run();
   } catch (e) {}
 
   app.use(express.json());
@@ -456,6 +462,7 @@ async function startServer() {
           name VARCHAR(255),
           qr_code VARCHAR(255),
           daily_goal INT DEFAULT 0,
+          sort_order INT DEFAULT 0,
           is_deleted TINYINT(1) DEFAULT 0,
           created_at DATETIME
         )
@@ -465,8 +472,8 @@ async function startServer() {
       await connection.execute('TRUNCATE TABLE meals');
       for (const meal of meals) {
         await connection.execute(
-          'INSERT INTO meals (id, name, qr_code, daily_goal, is_deleted, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [meal.id, meal.name, meal.qr_code, meal.daily_goal, meal.is_deleted, meal.created_at]
+          'INSERT INTO meals (id, name, qr_code, daily_goal, sort_order, is_deleted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [meal.id, meal.name, meal.qr_code, meal.daily_goal, meal.sort_order, meal.is_deleted, meal.created_at]
         );
       }
       console.log(`Meals synced to MariaDB (${meals.length} items)`);
@@ -533,7 +540,7 @@ async function startServer() {
   });
 
   app.get("/api/meals", (req, res) => {
-    const meals = db.prepare("SELECT * FROM meals WHERE is_deleted = 0").all();
+    const meals = db.prepare("SELECT * FROM meals WHERE is_deleted = 0 ORDER BY sort_order ASC, name ASC").all();
     res.json(meals);
   });
 
@@ -549,8 +556,9 @@ async function startServer() {
         return res.json({ id: existing.id, reactivated: true });
       }
 
-      const info = db.prepare("INSERT INTO meals (name, qr_code, daily_goal) VALUES (?, ?, ?)").run(name, qrCode, dailyGoal || 0);
+      const info = db.prepare("INSERT INTO meals (name, qr_code, daily_goal, sort_order) VALUES (?, ?, ?, ?)").run(name, qrCode, dailyGoal || 0, req.body.sortOrder || 0);
       syncMealsToMariaDB();
+      io.emit("update");
       res.json({ id: info.lastInsertRowid });
     } catch (e: any) {
       if (e.message.includes("UNIQUE constraint failed: meals.name")) {
@@ -566,9 +574,10 @@ async function startServer() {
   app.put("/api/meals/:id", (req, res) => {
     const { name, qrCode, dailyGoal } = req.body;
     try {
-      db.prepare("UPDATE meals SET name = ?, qr_code = ?, daily_goal = ? WHERE id = ?")
-        .run(name, qrCode, dailyGoal || 0, req.params.id);
+      db.prepare("UPDATE meals SET name = ?, qr_code = ?, daily_goal = ?, sort_order = ? WHERE id = ?")
+        .run(name, qrCode, dailyGoal || 0, req.body.sortOrder || 0, req.params.id);
       syncMealsToMariaDB();
+      io.emit("update");
       res.json({ success: true });
     } catch (e: any) {
       if (e.message.includes("UNIQUE constraint failed: meals.name")) {
@@ -584,6 +593,7 @@ async function startServer() {
   app.delete("/api/meals/:id", (req, res) => {
     db.prepare("UPDATE meals SET is_deleted = 1 WHERE id = ?").run(req.params.id);
     syncMealsToMariaDB();
+    io.emit("update");
     res.json({ success: true });
   });
 
@@ -595,11 +605,13 @@ async function startServer() {
         m.name, 
         m.qr_code, 
         m.daily_goal,
+        m.sort_order,
         COALESCE(c.count, 0) as count,
         (SELECT MAX(timestamp) FROM logs WHERE meal_id = m.id AND date(timestamp) = date('now', 'localtime')) as last_scan_time
       FROM meals m
       LEFT JOIN counts c ON m.id = c.meal_id AND c.date = ?
       WHERE m.is_deleted = 0
+      ORDER BY m.sort_order ASC, m.name ASC
     `).all(today);
     res.json(counts);
   });
@@ -621,12 +633,14 @@ async function startServer() {
     const { text, startTime, endTime, repeat, startDate, endDate, speed, color } = req.body;
     const info = db.prepare("INSERT INTO marquee_messages (text, start_time, end_time, repeat, start_date, end_date, speed, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(text, startTime, endTime, repeat || 'daily', startDate || null, endDate || null, speed || 'normal', color || '#000000');
     syncMarqueeToMariaDB();
+    io.emit("update");
     res.json({ id: info.lastInsertRowid });
   });
 
   app.delete("/api/marquee/:id", (req, res) => {
     db.prepare("DELETE FROM marquee_messages WHERE id = ?").run(req.params.id);
     syncMarqueeToMariaDB();
+    io.emit("update");
     res.json({ success: true });
   });
 

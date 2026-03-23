@@ -4,6 +4,7 @@ export interface Meal {
   qr_code: string;
   count: number;
   daily_goal: number;
+  sort_order: number;
   last_scan_time: string | null;
 }
 
